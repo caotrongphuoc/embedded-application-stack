@@ -1,7 +1,7 @@
 #include "mongoose.h"
 #include <signal.h>
 
-static const char *s_url        = "mqtt://127.0.0.1:1883";
+static const char *s_url        = "mqtt://192.168.1.113:1883";
 static const char *s_client_id  = "broker_connection";
 static int         s_keepalive  = 60;
 static volatile int s_signo     = 0;
