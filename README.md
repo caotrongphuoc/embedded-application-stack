@@ -1,2 +1,1 @@
-# http-demo
-Develop functions of HTTP
+Embedded connectivity stack with MQTT, HTTP/HTTPS, and TLS support. 
