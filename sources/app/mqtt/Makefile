@@ -1,6 +1,6 @@
 CC      = gcc
-CFLAGS  = -W -Wall -O2 -I../lib
-SRC     = mqtt.c ../lib/mongoose.c
+CFLAGS  = -W -Wall -O2 -Ilib
+SRC     = mqtt.c lib/mongoose.c
 BIN     = mqtt
 
 $(BIN): $(SRC)
