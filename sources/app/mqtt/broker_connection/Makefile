@@ -1,12 +1,10 @@
 CC      = gcc
 CFLAGS  = -W -Wall -O2 -I../lib
-LDLIBS  =
-
-SRC     = main.c ../lib/mongoose.c
-BIN     = broker_connection
+SRC     = mqtt.c ../lib/mongoose.c
+BIN     = mqtt
 
 $(BIN): $(SRC)
-	$(CC) $(CFLAGS) $(SRC) -o $(BIN) $(LDLIBS)
+	$(CC) $(CFLAGS) $(SRC) -o $(BIN)
 
 run: $(BIN)
 	./$(BIN)
