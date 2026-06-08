@@ -1,7 +1,7 @@
 #include "mongoose.h"
 #include <signal.h>
 
-#define RECONNECT_MS 3000
+#define RECONNECT_MS 60000 // 1 min
 
 static volatile int s_quit = 0;
 static void on_sigint(int sig) { (void) sig; s_quit = 1; }

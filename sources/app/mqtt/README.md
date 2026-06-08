@@ -82,7 +82,7 @@ Phần này em hard-code các tham số trực tiếp để thuận tiện cho v
 | Will message | `client's disconnected` | `opts.message` |
 | Will QoS | 1 | `opts.qos` |
 | Topic sub | `Request`, `Signaling`, `Status` | Trong handler `MG_EV_MQTT_OPEN` |
-| Reconnect delay | 3000 ms | `RECONNECT_MS` |
+| Reconnect delay | 60000 ms (1 phút) | `RECONNECT_MS` |
 
 ---
 
@@ -111,7 +111,7 @@ START
   │                    └─► nếu payload == "STOP_SUB" → mg_mqtt_unsub(topic đó)
   │
   ├─[Connection đóng]──► MG_EV_CLOSE
-  │                       └─► s_reconnect_at = mg_millis() + 3000
+  │                       └─► s_reconnect_at = mg_millis() + 60000
   │                       (lần poll sau, main loop check timer → gọi mg_mqtt_connect lại)
   │
   └─[Ctrl+C]──► s_quit = 1 → thoát loop
@@ -150,12 +150,12 @@ mosquitto_pub -h 127.0.0.1 -t test -m hi
 
 **Setup:** 2 terminal.
 
-**Terminal A — subscriber (code của mình):**
+**Terminal A — subscriber:**
 ```bash
 ./mqtt
 ```
 
-**Terminal B — publisher (mô phỏng cloud / device khác):**
+**Terminal B — publisher:**
 ```bash
 mosquitto_pub -h 127.0.0.1 -t Request -m "send packet 1"
 mosquitto_pub -h 127.0.0.1 -t Request -m "send packet 2"
@@ -173,9 +173,9 @@ RECV topic='Request' payload='STOP_SUB'
 CMD cmd=11 ...                       ← UNSUBACK (đã unsub topic Request)
 ```
 
-Sau khi nhận `STOP_SUB`, msg tiếp theo (`after stop`) **không** được nhận nữa vì client đã unsub topic `Request`.
+Sau khi nhận `STOP_SUB`, msg tiếp theo (`check after stop`) **không** được nhận nữa vì client đã unsub topic `Request`.
 
-<!-- IMAGE_TEST_1: chèn ảnh terminal A + terminal B ở đây -->
+<!-- IMAGE_TEST_1 -->
 
 **Ý nghĩa:**
 - `mg_mqtt_unsub()` chỉ cần 1 lệnh, broker xử lý ngay lập tức
@@ -212,7 +212,7 @@ demo/mqtt/will client's disconnected
 
 → Broker phát hiện TCP rớt mà chưa nhận gói DISCONNECT → fire Will message lên topic `demo/mqtt/will`.
 
-<!-- IMAGE_TEST_2: chèn ảnh terminal A bắt được Will message -->
+<!-- IMAGE_TEST_2 -->
 
 **Ý nghĩa:**
 - `opts.topic` + `opts.message` trong CONNECT options chính là Will (không phải topic data)
@@ -243,7 +243,7 @@ mosquitto_sub -h 127.0.0.1 -t 'demo/mqtt/#' -v
 - Terminal B in thêm `CLOSE` rồi exit
 - Terminal A **không in gì** — Will không fire
 
-<!-- IMAGE_TEST_3: ảnh terminal A trống + terminal B có dòng CLOSE -->
+<!-- IMAGE_TEST_3 -->
 
 **Ý nghĩa:**
 - Mongoose **không tự bắt signal** — đó là việc của libc qua `<signal.h>`
@@ -254,118 +254,79 @@ mosquitto_sub -h 127.0.0.1 -t 'demo/mqtt/#' -v
 
 ### Test 4 — Auto-reconnect khi mất kết nối
 
-**Mục đích:** Verify cơ chế tự kết nối lại khi broker rớt rồi sống lại — production app phải sống được qua các sự cố mạng.
+**Mục đích:** Em muốn xem client có tự kết nối lại không khi broker bị tắt rồi bật lại. Sự cố mạng là chuyện bình thường trong production, app phải sống được qua đó.
 
-**Setup:** 2 terminal. Dùng luôn broker (`127.0.0.1:1883`) qua systemd, kill rồi start lại để mô phỏng case.
+**Setup:** 2 terminal. Em dùng luôn broker chính ở `127.0.0.1:1883` qua systemd, stop rồi start lại để mô phỏng broker chết.
+
+Em đặt `RECONNECT_MS = 60000` (1 phút) trong code. Lúc thật trên cam có thể chỉnh lên 3-5 phút tùy yêu cầu, lúc test em để 1 phút cho đỡ phải đợi lâu nhưng vẫn đủ thực tế.
 
 **Terminal A — chạy client:**
 ```bash
 ./mqtt
 ```
 
-Đợi `CONNACK rc=0` + 3 dòng `CMD cmd=9` (đã sub xong).
+Đợi thấy `CONNACK rc=0` + 3 dòng `CMD cmd=9` (sub xong 3 topic) là OK.
 
-**Terminal B — stop rồi start lại broker:**
+**Terminal B — stop broker, đợi, rồi start lại:**
 ```bash
 sudo systemctl stop mosquitto
-sleep 10
+# đợi khoảng 1.5 phút để xem client thử reconnect ít nhất 1 lần và fail
+sleep 90
 sudo systemctl start mosquitto
 ```
 
 **Kết quả mong đợi ở Terminal A:**
 ```
-[Phiên 1]
-Connecting to mqtt://127.0.0.1:1883 ...
+[Phiên 1 - bình thường]
 CONNACK rc=0
 CMD cmd=9 id=1, 2, 3
-                                 ← broker bị stop
+                                  ← broker bị stop, client thấy CLOSE
 CLOSE
-Will auto-reconnect in 3000 ms
+Will auto-reconnect in 60000 ms
 
-[3 giây sau, broker chưa lên lại]
+[Sau 1 phút - broker chưa lên]
 Connecting to mqtt://127.0.0.1:1883 ...
-socket error
+socket error                       ← connect refused vì chưa có broker
 CLOSE
-Will auto-reconnect in 3000 ms
+Will auto-reconnect in 60000 ms
 
-[3 giây sau nữa, broker đã start lại]
+[Sau 1 phút nữa - broker đã start lại]
 Connecting to mqtt://127.0.0.1:1883 ...
-CONNACK rc=0
-CMD cmd=9 id=4, 5, 6             ← sub lại 3 topic
+CONNACK rc=0                        ← reconnect thành công
+CMD cmd=9 id=4, 5, 6                ← sub lại 3 topic
 ```
 
-<!-- IMAGE_TEST_4: ảnh terminal A với chuỗi reconnect -->
+<!-- IMAGE_TEST_4 -->
 
-**Ý nghĩa:**
-- Mongoose **không hỗ trợ**  cơ chế auto-reconnect nên cần phải implement thêm
-- Pattern: trong `MG_EV_CLOSE` set timer (`s_reconnect_at = mg_millis() + N`), trong main loop check `mg_millis() >= s_reconnect_at` → gọi lại `mg_mqtt_connect()`. N ở đây là thời gian reconnect, trong source em để N (RECONNECT_MS 3000) ở đây là 3 giây để có thể test có kể qua nhanh nhất, còn nếu test cam thì phải nghiên cứu thêm do cam cần test lâu
-- Sau reconnect thành công, `MG_EV_MQTT_OPEN` fire lại bình thường → sub lại 3 topic tự động (vì logic này nằm trong handler, chạy mỗi lần CONNACK về)
-- Cần đưa `mgr`, `opts` thành **biến global static** để gọi lại `mg_mqtt_connect()` được từ main loop (chứ không chỉ từ `main()` ban đầu)
-
----
-
-### Test 5 — Subscription là per-client, unsub không ảnh hưởng client khác
-
-**Mục đích:** Hiểu rõ MQTT: broker quản lý subscription **riêng cho từng client connection**. Một client unsub không ảnh hưởng client khác cùng sub topic đó.
-
-**Setup:** 3 terminal.
-
-**Terminal A — subscriber 1 (code của mình, có logic STOP_SUB):**
-```bash
-./mqtt
-```
-
-**Terminal B — subscriber 2 (subscriber thuần, không có logic gì):**
-```bash
-mosquitto_sub -h 127.0.0.1 -t Request -v
-```
-
-**Terminal C — publisher:**
-```bash
-mosquitto_pub -h 127.0.0.1 -t Request -m "hello"
-mosquitto_pub -h 127.0.0.1 -t Request -m "STOP_SUB"
-mosquitto_pub -h 127.0.0.1 -t Request -m "after stop"
-```
-
-**Kết quả mong đợi:**
-
-| Msg | Subscriber 1 (`./mqtt`) | Subscriber 2 (`mosquitto_sub`) |
-|---|---|---|
-| `hello` | RECV `hello` | `Request hello` |
-| `STOP_SUB` | RECV `STOP_SUB` → tự gọi unsub → nhận UNSUBACK | `Request STOP_SUB` |
-| `after stop` | không nhận (đã unsub) | `Request after stop` |
-
-<!-- IMAGE_TEST_5: ảnh 2 terminal subscriber song song -->
-
-**Bài học rút ra:**
-- MQTT broker quản lý subscription **per-client connection**, không phải global
-- Mỗi connection có "subscription list" riêng — sub/unsub của connection này không ảnh hưởng connection khác
-- Logic `STOP_SUB` chỉ là **business rule của 1 client**, các client khác cùng sub topic vẫn nhận msg `STOP_SUB` như msg bình thường
+**Kết luận:**
+- Mongoose **không có** auto-reconnect sẵn nên phải tự code. Cam dùng hệ task/timer riêng để làm việc này, còn bên mongoose thì em dùng cơ chế đơn giản hơn — set `s_reconnect_at = mg_millis() + RECONNECT_MS` trong `MG_EV_CLOSE`, sau đó main loop check thời điểm này mỗi vòng poll, đến giờ thì gọi lại `mg_mqtt_connect()`.
+- Tự nhiên có 1 thứ hay: code sub 3 topic nằm trong handler `MG_EV_MQTT_OPEN`, mà event này fire mỗi lần CONNACK về (kể cả sau reconnect). Vậy nên sau khi reconnect xong, 3 topic tự sub lại không cần code thêm.
+- Để gọi được `mg_mqtt_connect()` từ main loop (lúc reconnect), em phải đưa `mgr`, `opts` ra ngoài thành biến `static` global, không thể để local trong `main()` như ban đầu.
 
 ---
 
 ## Bài học rút ra từ toàn bộ quá trình
 
-###  Bẫy `opts.qos` trong CONNECT
+### Bẫy `opts.qos` trong CONNECT
 
 `opts.qos` khi gọi `mg_mqtt_connect()` thực ra là **Will QoS** (bit 3-4 của Connect Flags byte trong gói CONNECT). Nếu set `qos != 0` mà không có Will (`opts.topic` rỗng), broker reject CONNECT theo chuẩn MQTT-3.1.2-13.
 
-QoS cho publish/subscribe là field `qos` trong `mg_mqtt_opts` truyền cho `mg_mqtt_pub()`/`mg_mqtt_sub()` — khác hoàn toàn với QoS trong CONNECT.
+Đúng cách: QoS cho publish/subscribe truyền **riêng** trong `opts.qos` khi gọi `mg_mqtt_pub()`/`mg_mqtt_sub()`, không phải lúc CONNECT.
 
-###  Signal handling là của libc
+### Signal handling là việc của libc
 
-Mongoose không tự bắt SIGINT/SIGTERM. App phải tự dùng `signal()` của `<signal.h>`. Nếu không có handler, `Ctrl+C` sẽ giết process tức thì → không kịp gửi DISCONNECT → Will fire.
+Lúc đầu em tưởng mongoose tự lo SIGINT/Ctrl+C. Sau đó test thấy Ctrl+C cũng làm Will fire (giống `kill -9`) thì mới hiểu — mongoose không quan tâm signal, app phải tự dùng `signal()` của `<signal.h>` để bắt. Không có handler thì kernel giết process tức thì, gói DISCONNECT không kịp gửi → broker hiểu là crash → fire Will.
 
-###  Sub nhiều topic phải gọi sub nhiều lần
+### Sub nhiều topic phải gọi `mg_mqtt_sub()` nhiều lần
 
 API `mg_mqtt_sub()` mỗi lần gọi gửi 1 gói SUBSCRIBE chứa **1 topic** duy nhất. Muốn sub 3 topic phải gọi 3 lần riêng biệt.
 
-###  Một số  func phải tự code
+### Mongoose không cover sẵn auto-reconnect
 
 Mongoose không có auto-reconnect built-in, cần code:
-- Trong `MG_EV_CLOSE` handler: set timer `mg_millis() + delay`
-- Trong main loop: check timer, gọi lại `mg_mqtt_connect()`
-- Cần đưa `mgr` + `opts` thành biến global static để truy cập từ main loop
+- Trong `MG_EV_CLOSE` set `s_reconnect_at = mg_millis() + RECONNECT_MS`
+- Main loop check `mg_millis() >= s_reconnect_at` thì gọi lại `mg_mqtt_connect()`
+- Phải đưa `mgr` + `opts` thành biến global static để truy cập từ main loop được
 
 ---
 
