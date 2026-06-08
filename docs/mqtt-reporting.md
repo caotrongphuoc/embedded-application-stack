@@ -328,7 +328,7 @@ mosquitto_sub -h 127.0.0.1 -t 'demo/mqtt/#' -v
 
 **Setup:** 2 terminal. Em dùng luôn broker chính ở `127.0.0.1:1883` qua `systemd`, `stop` rồi `start` để mô phỏng broker chết tạm thời.
 
-Em đặt `RECONNECT_MS = 60000` (1 phút) trong code. Trên board production có thể chỉnh lên 3-5 phút tùy yêu cầu; em để 1 phút khi test cho đỡ phải chờ lâu, sau này em sẽ test kĩ hơn khi port lên board.
+Em đặt `RECONNECT_MS = 60000` (1 phút) trong code. Trên board có thể chỉnh lên tùy yêu cầu; em để 1 phút khi test cho đỡ phải chờ lâu, sau này em sẽ test kĩ hơn khi port lên board.
 
 **Terminal A — chạy client:**
 ```bash
