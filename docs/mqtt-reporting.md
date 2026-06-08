@@ -521,7 +521,12 @@ mosquitto_pub -h 127.0.0.1 -t Request -m "do something"
 mosquitto_pub -h 127.0.0.1 -t Request -m "another cmd"
 ```
 
-<!-- IMAGE_TEST_6 -->
+<table align="center">
+  <tr>
+    <td align="center"><img src="../resources/images/mqtt/mqtt_publish.png" alt="mqtt_publish" width="1700"/></td>
+  </tr>
+</table>
+<p align="center"><strong><em>Hình 6:</em></strong> Publish</p>
 
 **Đọc evidence:**
 
