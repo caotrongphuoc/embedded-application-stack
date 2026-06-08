@@ -155,6 +155,10 @@ mosquitto_pub -h 127.0.0.1 -t test -m hi
 
 **Mục đích:** Verify đúng mô hình pub/sub thực tế giữa 2 client riêng biệt, và demo cơ chế client tự unsub khi nhận lệnh đặc biệt từ broker (`STOP_SUB`).
 
+**Code tham chiếu:**
+- [`mqtt.c` L15-L33](../application/sources/app/mqtt/mqtt.c#L15-L33) — handler `MG_EV_MQTT_OPEN`: sub 3 topic `Request` / `Signaling` / `Status` (mỗi topic 1 lần gọi `mg_mqtt_sub`).
+- [`mqtt.c` L38-L52](../application/sources/app/mqtt/mqtt.c#L38-L52) — handler `MG_EV_MQTT_MSG`: log payload và gọi `mg_mqtt_unsub` khi payload trùng `"STOP_SUB"`.
+
 **Setup:** 2 terminal.
 
 **Terminal A — subscriber (client của em):**
@@ -209,6 +213,10 @@ Sau khi nhận `STOP_SUB`, msg cuối cùng (`check after stop`) **không** xu�
 
 **Mục đích:** Verify cơ chế Last Will and Testament (LWT) — khi client chết bất ngờ (mất điện, crash, mất mạng), broker tự pub "di chúc" lên topic Will để các client khác biết. Em dùng `pkill -9 mqtt` để giả lập crash đột ngột (SIGKILL không cho process chạy signal handler).
 
+**Code tham chiếu:**
+- [`mqtt.c` L76-L78](../application/sources/app/mqtt/mqtt.c#L76-L78) — set Will fields trong `s_opts`: `topic` = `demo/mqtt/will`, `message` = `client's disconnected`, `qos` = 1.
+- [`mqtt.c` L84](../application/sources/app/mqtt/mqtt.c#L84) — gọi `mg_mqtt_connect` với `&s_opts` để Mongoose encode Will vào gói CONNECT.
+
 **Setup:** 3 terminal.
 
 **Terminal A — watcher Will:**
@@ -240,7 +248,7 @@ pkill -9 mqtt
 - Terminal B (giữa): `CONNACK rc=0` + 3 dòng SUBACK (`CMD cmd=9 id=1/2/3`), rồi shell in `Killed` — chứng tỏ process bị SIGKILL từ bên ngoài, **không có** log `CLOSE` (vì SIGKILL không thể chặn, signal handler không chạy, app không kịp in gì thêm).
 - Terminal C (phải): chỉ là lệnh `pkill -9 mqtt`.
 
-**Logic broker:** broker thấy TCP socket bị nửa-đóng mà chưa nhận gói DISCONNECT đúng nghĩa → mặc định coi như client crash → fire Will message lên topic đã đăng ký trong CONNECT.
+**Logic broker:** broker thấy TCP socket bị nửa-đóng (FIN/RST) mà chưa nhận gói DISCONNECT đúng nghĩa → mặc định coi như client crash → fire Will message lên topic đã đăng ký trong CONNECT.
 
 **Ý nghĩa:**
 - `opts.topic` + `opts.message` trong CONNECT options chính là **Will topic** + **Will payload** (không phải data topic để pub thường).
@@ -252,6 +260,11 @@ pkill -9 mqtt
 ### Test 3 — Disconnect đàng hoàng: Will KHÔNG fire khi thoát có chủ ý
 
 **Mục đích:** Verify rằng khi client gửi gói DISCONNECT đúng spec MQTT, broker sẽ **không** fire Will — đây là cách app sống đàng hoàng nên ứng xử.
+
+**Code tham chiếu:**
+- [`mqtt.c` L6-L7](../application/sources/app/mqtt/mqtt.c#L6-L7) — định nghĩa cờ `s_quit` và signal handler `on_sigint` set cờ.
+- [`mqtt.c` L80-L81](../application/sources/app/mqtt/mqtt.c#L80-L81) — đăng ký handler cho `SIGINT` và `SIGTERM`.
+- [`mqtt.c` L97-L104](../application/sources/app/mqtt/mqtt.c#L97-L104) — sau khi main loop thoát: gọi `mg_mqtt_disconnect` rồi poll 5 lần × 100ms để flush bytes ra socket trước khi `mg_mgr_free`.
 
 **Setup:** 2 terminal.
 
@@ -306,9 +319,15 @@ mosquitto_sub -h 127.0.0.1 -t 'demo/mqtt/#' -v
 
 **Mục đích:** Verify client tự kết nối lại khi broker bị tắt rồi bật lại. Sự cố mạng/restart broker là chuyện bình thường, app phải sống được qua đó.
 
+**Code tham chiếu:**
+- [`mqtt.c` L4](../application/sources/app/mqtt/mqtt.c#L4) — macro `RECONNECT_MS = 60000` (1 phút).
+- [`mqtt.c` L53-L61](../application/sources/app/mqtt/mqtt.c#L53-L61) — handler `MG_EV_CLOSE`: set `s_reconnect_at = mg_millis() + RECONNECT_MS` khi connection rớt.
+- [`mqtt.c` L87-L94](../application/sources/app/mqtt/mqtt.c#L87-L94) — main loop check `s_reconnect_at` mỗi vòng poll, đến giờ thì gọi lại `mg_mqtt_connect`.
+- [`mqtt.c` L15-L33](../application/sources/app/mqtt/mqtt.c#L15-L33) — sub 3 topic nằm trong `MG_EV_MQTT_OPEN` nên tự re-sub sau mỗi lần reconnect, không cần code thêm.
+
 **Setup:** 2 terminal. Em dùng luôn broker chính ở `127.0.0.1:1883` qua `systemd`, `stop` rồi `start` để mô phỏng broker chết tạm thời.
 
-Em đặt `RECONNECT_MS = 60000` (1 phút) trong code. Trên board có thể config lại tùy yêu cầu; em để 1 phút khi test cho đỡ phải chờ lâu, sau này em sẽ test kĩ hơn khi port lên board.
+Em đặt `RECONNECT_MS = 60000` (1 phút) trong code. Trên board production có thể chỉnh lên 3-5 phút tùy yêu cầu; em để 1 phút khi test cho đỡ phải chờ lâu, sau này em sẽ test kĩ hơn khi port lên board.
 
 **Terminal A — chạy client:**
 ```bash
@@ -369,6 +388,10 @@ CMD cmd=9 id=6                         ← SUBACK 'Status'
 ### Test 5 — Username / Password authentication
 
 **Mục đích:** Em set `opts.user = "ctp"` và `opts.pass = "aloalo"` trong code, nhưng broker mặc định ở port `1883` đang `allow_anonymous true` — kiểu gì cũng accept nên không thấy được tác dụng của auth. Em dựng thêm 1 broker riêng ở port `1884` có bật `allow_anonymous false` + `password_file` để verify thật cả 2 chiều: pass đúng → OK, pass sai → reject.
+
+**Code tham chiếu:**
+- [`mqtt.c` L74-L75](../application/sources/app/mqtt/mqtt.c#L74-L75) — set `s_opts.user = "ctp"` và `s_opts.pass = "aloalo"` để Mongoose encode vào gói CONNECT (bật cờ User Name Flag + Password Flag).
+- [`mqtt.c` L16](../application/sources/app/mqtt/mqtt.c#L16) — log CONNACK return code trong `MG_EV_MQTT_OPEN` (rc=0 = accepted, rc=5 = not authorized).
 
 **Setup broker auth (1 lần):**
 
@@ -493,6 +516,10 @@ Cần code tay theo pattern:
 - `mgr` + `opts` phải để global static để truy cập được từ main loop.
 
 Bonus: vì sub topic nằm trong handler `MG_EV_MQTT_OPEN` (fire mỗi lần CONNACK), nên sau reconnect 3 topic tự sub lại — không cần code thêm.
+
+### Auth fail không có cơ chế stop retry mặc định
+
+Mongoose vẫn fire `MG_EV_CLOSE` khi auth fail (rc=5), nên auto-reconnect logic vẫn chạy → loop vô hạn nếu credential vẫn sai. Production cần đếm consecutive failure và stop retry sau N lần, hoặc backoff exponential.
 
 ---
 
