@@ -97,7 +97,7 @@ START
   │
   ├─► mg_mgr_init                   tạo epoll fd
   │
-  ├─► signal(SIGINT/SIGTERM, …)     đăng ký handler bắt Ctrl+C
+  ├─► signal(SIGINT/SIGTERM, …)     đăng ký handler bắt Ctrl+C (em dùng cho mục đích test case disconnect đàng hoàng)
   │
   ├─► mg_mqtt_connect               mở TCP + gửi CONNECT (kèm Will + user/pass)
   │
