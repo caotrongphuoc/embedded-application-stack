@@ -253,7 +253,7 @@ pkill -9 mqtt
 
 **Ý nghĩa:**
 - `opts.topic` + `opts.message` trong CONNECT options chính là **Will topic** + **Will payload** (không phải data topic để pub thường).
-- `opts.qos` trong `mg_mqtt_opts` lúc gọi `mg_mqtt_connect()` thực ra là **Will QoS** (bit 3-4 của Connect Flags byte). Nếu set `qos != 0` mà không có Will topic, broker sẽ reject CONNECT theo chuẩn MQTT-3.1.2-13 — đây là cái bẫy em đã gặp ở task `board_app` trước đó.
+- `opts.qos` trong `mg_mqtt_opts` lúc gọi `mg_mqtt_connect()` thực ra là **Will QoS** (bit 3-4 của Connect Flags byte). 
 - Để trigger được Will, **bắt buộc dùng `kill -9`** (SIGKILL). Các cách thoát khác (Ctrl+C → SIGINT, `kill` → SIGTERM, `pkill` không có `-9`) sẽ kích hoạt signal handler → app gửi DISCONNECT trước → broker hiểu là thoát đàng hoàng → Will không fire (xem Test 3).
 
 ---
