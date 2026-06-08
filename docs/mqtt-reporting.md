@@ -158,7 +158,7 @@ mosquitto_pub -h 127.0.0.1 -t test -m hi
 
 **Code tham chiếu:**
 - [`mqtt.c` L15-L33](../application/sources/app/mqtt/mqtt.c#L15-L33) — handler `MG_EV_MQTT_OPEN`: sub 3 topic `Request` / `Signaling` / `Status` (mỗi topic 1 lần gọi `mg_mqtt_sub`).
-- [`mqtt.c` L38-L52](../application/sources/app/mqtt/mqtt.c#L38-L52) — handler `MG_EV_MQTT_MSG`: log payload và gọi `mg_mqtt_unsub` khi payload trùng `"STOP_SUB"`.
+- [`mqtt.c` L47-L71](../application/sources/app/mqtt/mqtt.c#L47-L71) — handler `MG_EV_MQTT_MSG`: log payload và gọi `mg_mqtt_unsub` khi payload trùng `"STOP_SUB"`.
 
 **Setup:** 2 terminal.
 
@@ -215,8 +215,8 @@ Sau khi nhận `STOP_SUB`, msg cuối cùng (`check after stop`) **không** xu�
 **Mục đích:** Verify cơ chế Last Will and Testament (LWT) — khi client chết bất ngờ (mất điện, crash, mất mạng), broker tự pub "di chúc" lên topic Will để các client khác biết. Em dùng `pkill -9 mqtt` để giả lập crash đột ngột (SIGKILL không cho process chạy signal handler).
 
 **Code tham chiếu:**
-- [`mqtt.c` L76-L78](../application/sources/app/mqtt/mqtt.c#L76-L78) — set Will fields trong `s_opts`: `topic` = `demo/mqtt/will`, `message` = `client's disconnected`, `qos` = 1.
-- [`mqtt.c` L84](../application/sources/app/mqtt/mqtt.c#L84) — gọi `mg_mqtt_connect` với `&s_opts` để Mongoose encode Will vào gói CONNECT.
+- [`mqtt.c` L95-L97](../application/sources/app/mqtt/mqtt.c#L95-L97) — set Will fields trong `s_opts`: `topic` = `demo/mqtt/will`, `message` = `client's disconnected`, `qos` = 1.
+- [`mqtt.c` L103](../application/sources/app/mqtt/mqtt.c#L103) — gọi `mg_mqtt_connect` với `&s_opts` để Mongoose encode Will vào gói CONNECT.
 
 **Setup:** 3 terminal.
 
@@ -264,8 +264,8 @@ pkill -9 mqtt
 
 **Code tham chiếu:**
 - [`mqtt.c` L6-L7](../application/sources/app/mqtt/mqtt.c#L6-L7) — định nghĩa cờ `s_quit` và signal handler `on_sigint` set cờ.
-- [`mqtt.c` L80-L81](../application/sources/app/mqtt/mqtt.c#L80-L81) — đăng ký handler cho `SIGINT` và `SIGTERM`.
-- [`mqtt.c` L97-L104](../application/sources/app/mqtt/mqtt.c#L97-L104) — sau khi main loop thoát: gọi `mg_mqtt_disconnect` rồi poll 5 lần × 100ms để flush bytes ra socket trước khi `mg_mgr_free`.
+- [`mqtt.c` L99-L100](../application/sources/app/mqtt/mqtt.c#L99-L100) — đăng ký handler cho `SIGINT` và `SIGTERM`.
+- [`mqtt.c` L116-L123](../application/sources/app/mqtt/mqtt.c#L116-L123) — sau khi main loop thoát: gọi `mg_mqtt_disconnect` rồi poll 5 lần × 100ms để flush bytes ra socket trước khi `mg_mgr_free`.
 
 **Setup:** 2 terminal.
 
@@ -322,8 +322,8 @@ mosquitto_sub -h 127.0.0.1 -t 'demo/mqtt/#' -v
 
 **Code tham chiếu:**
 - [`mqtt.c` L4](../application/sources/app/mqtt/mqtt.c#L4) — macro `RECONNECT_MS = 60000` (1 phút).
-- [`mqtt.c` L53-L61](../application/sources/app/mqtt/mqtt.c#L53-L61) — handler `MG_EV_CLOSE`: set `s_reconnect_at = mg_millis() + RECONNECT_MS` khi connection rớt.
-- [`mqtt.c` L87-L94](../application/sources/app/mqtt/mqtt.c#L87-L94) — main loop check `s_reconnect_at` mỗi vòng poll, đến giờ thì gọi lại `mg_mqtt_connect`.
+- [`mqtt.c` L72-L80](../application/sources/app/mqtt/mqtt.c#L72-L80) — handler `MG_EV_CLOSE`: set `s_reconnect_at = mg_millis() + RECONNECT_MS` khi connection rớt.
+- [`mqtt.c` L106-L114](../application/sources/app/mqtt/mqtt.c#L106-L114) — main loop check `s_reconnect_at` mỗi vòng poll, đến giờ thì gọi lại `mg_mqtt_connect`.
 - [`mqtt.c` L15-L33](../application/sources/app/mqtt/mqtt.c#L15-L33) — sub 3 topic nằm trong `MG_EV_MQTT_OPEN` nên tự re-sub sau mỗi lần reconnect, không cần code thêm.
 
 **Setup:** 2 terminal. Em dùng luôn broker chính ở `127.0.0.1:1883` qua `systemd`, `stop` rồi `start` để mô phỏng broker chết tạm thời.
@@ -391,7 +391,7 @@ CMD cmd=9 id=6                         ← SUBACK 'Status'
 **Mục đích:** Em set `opts.user = "ctp"` và `opts.pass = "aloalo"` trong code, nhưng broker mặc định ở port `1883` đang `allow_anonymous true` — kiểu gì cũng accept nên không thấy được tác dụng của auth. Em dựng thêm 1 broker riêng ở port `1884` có bật `allow_anonymous false` + `password_file` để verify thật cả 2 chiều: pass đúng → OK, pass sai → reject.
 
 **Code tham chiếu:**
-- [`mqtt.c` L74-L75](../application/sources/app/mqtt/mqtt.c#L74-L75) — set `s_opts.user = "ctp"` và `s_opts.pass = "aloalo"` để Mongoose encode vào gói CONNECT (bật cờ User Name Flag + Password Flag).
+- [`mqtt.c` L93-L94](../application/sources/app/mqtt/mqtt.c#L93-L94) — set `s_opts.user = "ctp"` và `s_opts.pass = "aloalo"` để Mongoose encode vào gói CONNECT (bật cờ User Name Flag + Password Flag).
 - [`mqtt.c` L16](../application/sources/app/mqtt/mqtt.c#L16) — log CONNACK return code trong `MG_EV_MQTT_OPEN` (rc=0 = accepted, rc=5 = not authorized).
 
 **Setup broker auth (1 lần):**
@@ -498,27 +498,30 @@ Khi đổi `opts.pass = mg_str("olaola")` trong `mqtt.c` và build lại, `./mqt
 2. Mỗi khi nhận msg trên topic `Request`, pub `{"status":"ok"}` lên topic `Response` — giả lập việc trả lời command từ cloud.
 
 **Code tham chiếu:**
-- [`mqtt.c` L31-L40](../application/sources/app/mqtt/mqtt.c#L31-L40) — pub status `online` cuối handler `MG_EV_MQTT_OPEN`.
-- [`mqtt.c` L52-L60](../application/sources/app/mqtt/mqtt.c#L52-L60) — pub response trong handler `MG_EV_MQTT_MSG` khi nhận msg trên `Request`.
+- [`mqtt.c` L34-L41](../application/sources/app/mqtt/mqtt.c#L34-L41) — pub status `online` cuối handler `MG_EV_MQTT_OPEN`.
+- [`mqtt.c` L53-L61](../application/sources/app/mqtt/mqtt.c#L53-L61) — pub response trong handler `MG_EV_MQTT_MSG` khi nhận msg trên `Request`.
 
-**Setup:** 3 terminal.
+**Setup:** 4 terminal.
 
-**Terminal A — sub `Status` từ ngoài để xem msg `online`:**
+**Terminal 1 — sub `Status` từ ngoài để xem msg `online`:**
 ```bash
 mosquitto_sub -h 127.0.0.1 -t Status -v
 ```
 
-**Terminal B — sub `Response` từ ngoài để xem response khi gửi Request:**
+**Terminal 2 — sub `Response` từ ngoài để xem response khi gửi Request:**
 ```bash
 mosquitto_sub -h 127.0.0.1 -t Response -v
 ```
 
-**Terminal C — chạy client + gửi 2 cmd lên `Request`:**
+**Terminal 3 — chạy client:**
 ```bash
-./mqtt &
-sleep 1
+./mqtt
+```
+
+**Terminal 4 — gửi 2 cmd lên `Request`:**
+```bash
 mosquitto_pub -h 127.0.0.1 -t Request -m "do something"
-mosquitto_pub -h 127.0.0.1 -t Request -m "another cmd"
+mosquitto_pub -h 127.0.0.1 -t Request -m "more and more"
 ```
 
 <table align="center">
@@ -528,39 +531,30 @@ mosquitto_pub -h 127.0.0.1 -t Request -m "another cmd"
 </table>
 <p align="center"><strong><em>Hình 6:</em></strong> Publish</p>
 
-**Đọc evidence:**
+**Đọc evidence (Hình 6):**
 
-Terminal A thấy:
-```
-Status {"status":"online"}
-```
+Terminal 1 (trái) — `mosquitto_sub -t Status`: in 2 dòng `Status {"status":"online"}`. Dòng đầu là **retained msg** broker delivery ngay khi sub mới connect (do lần test trước đã pub Status với `retain=true` nên broker lưu lại); dòng thứ 2 là msg `./mqtt` của lần test hiện tại pub khi nhận CONNACK.
 
-Terminal B thấy:
-```
-Response {"status":"ok"}
-Response {"status":"ok"}
-```
+Terminal 2 (trái-giữa) — `mosquitto_sub -t Response`: in 2 dòng `Response {"status":"ok"}`, mỗi dòng tương ứng với 1 cmd `Request` từ Terminal 4.
 
-Terminal C (client log):
+Terminal 3 (giữa-phải) — output `./mqtt` (3 dòng SUBACK đầu đã scroll khỏi vùng nhìn thấy):
 ```
-CONNACK rc=0
-CMD cmd=2 id=0
-CMD cmd=9 id=1, 2, 3                                    ← 3 SUBACK
-RECV topic='Status' payload='{"status":"online"}'       ← chính client cũng nhận msg "online" vì đã sub Status
-CMD cmd=3 id=1                                          ← PUBLISH (Status online, do client tự pub)
-CMD cmd=4 id=4                                          ← PUBACK cho msg vừa pub
-RECV topic='Request' payload='do something'             ← msg từ Terminal C
+CMD cmd=3 id=2                              ← PUBLISH broker forward về (Status retain loop-back)
+CMD cmd=4 id=4                              ← PUBACK broker trả cho msg Status mà client tự pub (id=4)
+RECV topic='Request' payload='do something' ← msg từ Terminal 4
+CMD cmd=3 id=0                              ← PUBLISH event cho Request (mosquitto_pub mặc định QoS 0 → id=0)
+CMD cmd=4 id=5                              ← PUBACK cho msg Response client vừa pub (id=5)
+RECV topic='Request' payload='more and more'
 CMD cmd=3 id=0
-CMD cmd=4 id=5                                          ← PUBACK cho msg Response vừa pub
-RECV topic='Request' payload='another cmd'
-CMD cmd=3 id=0
-CMD cmd=4 id=6                                          ← PUBACK cho msg Response thứ 2
+CMD cmd=4 id=6                              ← PUBACK cho msg Response thứ 2 (id=6)
 ```
+
+Terminal 4 (phải) — publisher: 2 lệnh `mosquitto_pub -t Request -m "do something"` và `-m "more and more"`.
 
 **Quan sát:**
-- `mg_mqtt_pub()` chỉ cần 1 lệnh — broker tự xử lý + trả PUBACK (`cmd=4`) vì pub với QoS 1.
-- Vì client sub luôn topic `Status` mà chính nó pub vào → client cũng RECV lại msg `online` của chính mình (giống self-loopback). Đây là đặc tính của MQTT: broker route msg cho mọi subscriber, bao gồm cả publisher nếu publisher cũng sub.
-- `retain=true` trong msg `Status` có nghĩa broker lưu lại msg này. Subscriber **kết nối sau** vẫn nhận được. Em có thể verify: sau khi client đã ngắt kết nối, mở terminal mới chạy `mosquitto_sub -h 127.0.0.1 -t Status -v` — vẫn thấy `{"status":"online"}` mặc dù không có publisher đang chạy.
+- `mg_mqtt_pub()` chỉ cần 1 lệnh — broker trả PUBACK (`cmd=4`) vì client pub với QoS 1. Có thể thấy 3 PUBACK liên tiếp: `id=4` cho Status `online`, `id=5` và `id=6` cho 2 Response. Packet ID tăng monotonic từ counter chung của Mongoose (sau 3 SUBACK `id=1/2/3` ban đầu là PUBLISH `id=4` của Status, rồi 2 PUBLISH `id=5/6` của Response).
+- `retain=true` trên Status pub có nghĩa broker lưu lại msg này. Subscriber **kết nối sau** vẫn nhận được — đó là lý do Terminal 1 in được dòng `online` ngay khi vừa sub xong (chưa cần `./mqtt` pub gì lúc đó).
+- Vì client cũng sub topic `Status` mà chính nó pub, broker forward msg về client (loop-back) — đây là đặc tính mặc định của Mosquitto. Dòng `CMD cmd=3 id=2` ở đầu screenshot chính là gói PUBLISH broker đẩy về (broker tự assign packet id cho downlink, không trùng counter của client).
 - Mongoose return `uint16_t` packet ID cho `mg_mqtt_pub()` — em chưa lưu lại giá trị này (cam có dùng `m_mid` để track). Nếu cần track PUBACK cho từng msg riêng (vd: retry khi timeout), sẽ phải lưu lại.
 
 ---
