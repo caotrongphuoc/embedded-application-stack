@@ -240,7 +240,7 @@ pkill -9 mqtt
 - Terminal B (giữa): `CONNACK rc=0` + 3 dòng SUBACK (`CMD cmd=9 id=1/2/3`), rồi shell in `Killed` — chứng tỏ process bị SIGKILL từ bên ngoài, **không có** log `CLOSE` (vì SIGKILL không thể chặn, signal handler không chạy, app không kịp in gì thêm).
 - Terminal C (phải): chỉ là lệnh `pkill -9 mqtt`.
 
-**Logic broker:** broker thấy TCP socket bị nửa-đóng (FIN/RST) mà chưa nhận gói DISCONNECT đúng nghĩa → mặc định coi như client crash → fire Will message lên topic đã đăng ký trong CONNECT.
+**Logic broker:** broker thấy TCP socket bị nửa-đóng mà chưa nhận gói DISCONNECT đúng nghĩa → mặc định coi như client crash → fire Will message lên topic đã đăng ký trong CONNECT.
 
 **Ý nghĩa:**
 - `opts.topic` + `opts.message` trong CONNECT options chính là **Will topic** + **Will payload** (không phải data topic để pub thường).
@@ -308,7 +308,7 @@ mosquitto_sub -h 127.0.0.1 -t 'demo/mqtt/#' -v
 
 **Setup:** 2 terminal. Em dùng luôn broker chính ở `127.0.0.1:1883` qua `systemd`, `stop` rồi `start` để mô phỏng broker chết tạm thời.
 
-Em đặt `RECONNECT_MS = 60000` (1 phút) trong code. Trên board production có thể chỉnh lên 3-5 phút tùy yêu cầu; em để 1 phút khi test cho đỡ phải chờ lâu, sau này em sẽ test kĩ hơn khi port lên board.
+Em đặt `RECONNECT_MS = 60000` (1 phút) trong code. Trên board có thể config lại tùy yêu cầu; em để 1 phút khi test cho đỡ phải chờ lâu, sau này em sẽ test kĩ hơn khi port lên board.
 
 **Terminal A — chạy client:**
 ```bash
@@ -493,10 +493,6 @@ Cần code tay theo pattern:
 - `mgr` + `opts` phải để global static để truy cập được từ main loop.
 
 Bonus: vì sub topic nằm trong handler `MG_EV_MQTT_OPEN` (fire mỗi lần CONNACK), nên sau reconnect 3 topic tự sub lại — không cần code thêm.
-
-### Auth fail không có cơ chế stop retry mặc định
-
-Mongoose vẫn fire `MG_EV_CLOSE` khi auth fail (rc=5), nên auto-reconnect logic vẫn chạy → loop vô hạn nếu credential vẫn sai. Production cần đếm consecutive failure và stop retry sau N lần, hoặc backoff exponential.
 
 ---
 
