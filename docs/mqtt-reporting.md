@@ -178,7 +178,7 @@ Sau khi nhận `STOP_SUB`, msg tiếp theo (`check after stop`) **không** đư�
 
 <table align="center">
   <tr>
-    <td align="center"><img src="../resources/images/mqtt/mqtt_subcribe_publish_unsubcribe.png" alt="mqtt_subcribe_publish_unsubcribe" width="480"/></td>
+    <td align="center"><img src="../resources/images/mqtt/mqtt_subcribe_publish_unsubcribe.png" alt="mqtt_subcribe_publish_unsubcribe" width="1700"/></td>
   </tr>
 </table>
 <p align="center"><strong><em>Hình 1:</em></strong> Subcribe, publish and unsubcribe</p>
