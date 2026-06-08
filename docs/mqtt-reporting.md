@@ -517,10 +517,6 @@ Cần code tay theo pattern:
 
 Bonus: vì sub topic nằm trong handler `MG_EV_MQTT_OPEN` (fire mỗi lần CONNACK), nên sau reconnect 3 topic tự sub lại — không cần code thêm.
 
-### Auth fail không có cơ chế stop retry mặc định
-
-Mongoose vẫn fire `MG_EV_CLOSE` khi auth fail (rc=5), nên auto-reconnect logic vẫn chạy → loop vô hạn nếu credential vẫn sai. Production cần đếm consecutive failure và stop retry sau N lần, hoặc backoff exponential.
-
 ---
 
 ## Tham khảo
