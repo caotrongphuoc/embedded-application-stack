@@ -363,7 +363,7 @@ mosquitto_pub -h 127.0.0.1 -p 1884 -u ctp -P WRONG -t x -m y
 ./mqtt
 ```
 
-Kết quả mong đợi:
+Kết quả:
 ```
 Connecting to mqtt://127.0.0.1:1884 ...
 CONNACK rc=0                          ← broker chấp nhận user/pass
@@ -383,7 +383,7 @@ CMD cmd=9 id=1, 2, 3                  ← 3 SUBACK
 ./mqtt
 ```
 
-Kết quả mong đợi:
+Kết quả:
 ```
 Connecting to mqtt://127.0.0.1:1884 ...
 CONNACK rc=5                          ← broker reject (5 = not authorized)
@@ -408,7 +408,7 @@ Will auto-reconnect in 60000 ms       ← code tự retry nhưng cứ sai pass t
 
 ---
 
-## Bài học rút ra từ toàn bộ quá trình
+## Kết luận
 
 ### Bẫy `opts.qos` trong CONNECT
 
