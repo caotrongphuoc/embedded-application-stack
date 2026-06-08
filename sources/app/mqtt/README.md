@@ -331,9 +331,9 @@ mosquitto_pub -h 127.0.0.1 -t Request -m "after stop"
 
 | Msg | Subscriber 1 (`./mqtt`) | Subscriber 2 (`mosquitto_sub`) |
 |---|---|---|
-| `hello` | ✅ RECV `hello` | ✅ `Request hello` |
-| `STOP_SUB` | ✅ RECV `STOP_SUB` → tự gọi unsub → nhận UNSUBACK | ✅ `Request STOP_SUB` |
-| `after stop` | ❌ không nhận (đã unsub) | ✅ `Request after stop` |
+| `hello` | RECV `hello` | `Request hello` |
+| `STOP_SUB` | RECV `STOP_SUB` → tự gọi unsub → nhận UNSUBACK | `Request STOP_SUB` |
+| `after stop` | không nhận (đã unsub) | `Request after stop` |
 
 <!-- IMAGE_TEST_5: ảnh 2 terminal subscriber song song -->
 
