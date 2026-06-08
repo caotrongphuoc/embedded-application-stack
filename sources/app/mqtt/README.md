@@ -21,22 +21,22 @@ mqtt/
 
 ## Bảng các API mongoose dùng trong code
 
-| API | Vai trò |
-|---|---|
-| `mg_mgr_init(mgr)` | Khởi tạo event manager (epoll fd, ID counter) |
-| `mg_mgr_poll(mgr, ms)` | 1 vòng event loop, chờ tối đa `ms` mili giây |
-| `mg_mgr_free(mgr)` | Đóng mọi connection còn lại + giải phóng |
-| `mg_mqtt_connect(mgr, url, opts, fn, fn_data)` | Mở TCP + gửi gói CONNECT |
-| `mg_mqtt_sub(c, opts)` | Gửi gói SUBSCRIBE |
-| `mg_mqtt_unsub(c, opts)` | Gửi gói UNSUBSCRIBE |
-| `mg_mqtt_disconnect(c, opts)` | Gửi gói DISCONNECT (2 byte gồm 0xE0 và 0x00) |
-| `mg_str("…")` | Tạo `struct mg_str` gồm có *buf (chuỗi dữ liệu) và len (kích thước) |
-| `mg_strcmp(s1, s2)` | So sánh 2 chuỗi `mg_str` |
-| `mg_millis()` | Lấy thời gian hiện tại|
-| `mg_log_set(level)` | Set log level (`MG_LL_ERROR/INFO/DEBUG/VERBOSE`) |
-| `MG_INFO((...))` | Macro log mức INFO |
+Cột "Tham khảo source" link thẳng tới dòng khai báo trong `mongoose.h` và dòng implement trong `mongoose.c` để tra cứu nhanh:
 
-Tất cả khai báo trong [lib/mongoose.h](lib/mongoose.h), implement trong [lib/mongoose.c](lib/mongoose.c).
+| API | Vai trò | Tham khảo source |
+|---|---|---|
+| `mg_mgr_init(mgr)` | Khởi tạo event manager (epoll fd, ID counter) | [h:1805](lib/mongoose.h#L1805) · [c:7262](lib/mongoose.c#L7262) |
+| `mg_mgr_poll(mgr, ms)` | 1 vòng event loop, chờ tối đa `ms` mili giây | [h:1804](lib/mongoose.h#L1804) · [c:13777](lib/mongoose.c#L13777) |
+| `mg_mgr_free(mgr)` | Đóng mọi connection còn lại + giải phóng | [h:1806](lib/mongoose.h#L1806) · [c:7242](lib/mongoose.c#L7242) |
+| `mg_mqtt_connect(mgr, url, opts, fn, fn_data)` | Mở TCP + gửi gói CONNECT | [h:3088](lib/mongoose.h#L3088) · [c:6961](lib/mongoose.c#L6961) |
+| `mg_mqtt_sub(c, opts)` | Gửi gói SUBSCRIBE | [h:3095](lib/mongoose.h#L3095) · [c:6779](lib/mongoose.c#L6779) |
+| `mg_mqtt_unsub(c, opts)` | Gửi gói UNSUBSCRIBE | [h:3096](lib/mongoose.h#L3096) · [c:6783](lib/mongoose.c#L6783) |
+| `mg_mqtt_disconnect(c, opts)` | Gửi gói DISCONNECT (2 byte gồm 0xE0 và 0x00) | [h:3102](lib/mongoose.h#L3102) · [c:6944](lib/mongoose.c#L6944) |
+| `mg_str("…")` | Tạo `struct mg_str` gồm có *buf (chuỗi dữ liệu) và len (kích thước). Là macro gọi `mg_str_s()` | [h:1200](lib/mongoose.h#L1200) · [c:13938](lib/mongoose.c#L13938) |
+| `mg_strcmp(s1, s2)` | So sánh 2 chuỗi `mg_str` | [h:1205](lib/mongoose.h#L1205) · [c:13977](lib/mongoose.c#L13977) |
+| `mg_millis()` | Lấy thời gian hiện tại (ms từ Unix epoch) | [h:2943](lib/mongoose.h#L2943) · [c:24783](lib/mongoose.c#L24783) |
+| `mg_log_set(level)` | Set log level (`MG_LL_ERROR/INFO/DEBUG/VERBOSE`). Là macro gán `mg_log_level` | [h:1287](lib/mongoose.h#L1287) |
+| `MG_INFO((...))` | Macro log mức INFO | [h:1333](lib/mongoose.h#L1333) |
 
 ## Bảng các event xử lý trong callback `fn`
 
@@ -44,25 +44,25 @@ Tất cả khai báo trong [lib/mongoose.h](lib/mongoose.h), implement trong [li
 static void fn(struct mg_connection *c, int ev, void *ev_data);
 ```
 
-| Event | Khi nào fire | `ev_data` |
-|---|---|---|
-| `MG_EV_MQTT_OPEN` | Nhận CONNACK | `int *` = return code (0 = OK) |
-| `MG_EV_MQTT_CMD` | Nhận bất kỳ gói MQTT nào | `struct mg_mqtt_message *` |
-| `MG_EV_MQTT_MSG` | Nhận PUBLISH (có msg tới subscription) | `struct mg_mqtt_message *` |
-| `MG_EV_CLOSE` | Connection đóng | `NULL` |
+| Event | Khi nào fire | `ev_data` | Tham khảo |
+|---|---|---|---|
+| `MG_EV_MQTT_OPEN` | Nhận CONNACK | `int *` = return code (0 = OK) | [h:1709](lib/mongoose.h#L1709) |
+| `MG_EV_MQTT_CMD` | Nhận bất kỳ gói MQTT nào | `struct mg_mqtt_message *` | [h:1707](lib/mongoose.h#L1707) |
+| `MG_EV_MQTT_MSG` | Nhận PUBLISH (có msg tới subscription) | `struct mg_mqtt_message *` | [h:1708](lib/mongoose.h#L1708) |
+| `MG_EV_CLOSE` | Connection đóng | `NULL` | [h:1701](lib/mongoose.h#L1701) |
 
 ## Bảng mã `cmd` xuất hiện trong log
 
 Khi nhận `MG_EV_MQTT_CMD`, field `m->cmd` cho biết loại gói:
 
-| `cmd` | Tên gói MQTT | Ý nghĩa |
-|---|---|---|
-| 2 | CONNACK | Broker xác nhận connect |
-| 3 | PUBLISH | Có msg tới topic mình sub |
-| 4 | PUBACK | Broker ack msg QoS≥1 mình vừa pub |
-| 9 | SUBACK | Broker ack gói SUBSCRIBE |
-| 11 | UNSUBACK | Broker ack gói UNSUBSCRIBE |
-| 13 | PINGRESP | Broker trả lời keep-alive PING |
+| `cmd` | Tên gói MQTT | Ý nghĩa | Tham khảo |
+|---|---|---|---|
+| 2 | CONNACK | Broker xác nhận connect | [h:2996](lib/mongoose.h#L2996) |
+| 3 | PUBLISH | Có msg tới topic mình sub | [h:2997](lib/mongoose.h#L2997) |
+| 4 | PUBACK | Broker ack msg QoS≥1 mình vừa pub | [h:2998](lib/mongoose.h#L2998) |
+| 9 | SUBACK | Broker ack gói SUBSCRIBE | [h:3003](lib/mongoose.h#L3003) |
+| 11 | UNSUBACK | Broker ack gói UNSUBSCRIBE | [h:3005](lib/mongoose.h#L3005) |
+| 13 | PINGRESP | Broker trả lời keep-alive PING | [h:3007](lib/mongoose.h#L3007) |
 
 ---
 
