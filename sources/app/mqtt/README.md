@@ -4,7 +4,7 @@
 
 Học cách sử dụng các API MQTT của thư viện mongoose rồi viết lại thành 1 file c, kết nối tới broker (hiện tại em dùng broker mosquitto local do em chưa test board ạ) và thực hiện các func cơ bản như: sub, pub, unsub, disconnect đàng hoàng, Last Will (disconnect đột ngột, crash), auto-reconnect.
 
-Toàn bộ code nằm trong file `mqtt.c` (~110 dòng), thư viện mongoose nằm trong folder `lib`.
+Toàn bộ code nằm trong file `mqtt.c`, thư viện mongoose nằm trong folder `lib`.
 
 ## Cấu trúc folder
 
@@ -258,7 +258,7 @@ mosquitto_sub -h 127.0.0.1 -t 'demo/mqtt/#' -v
 
 **Setup:** 2 terminal. Em dùng luôn broker chính ở `127.0.0.1:1883` qua systemd, stop rồi start lại để mô phỏng broker chết.
 
-Em đặt `RECONNECT_MS = 60000` (1 phút) trong code. Lúc thật trên cam có thể chỉnh lên 3-5 phút tùy yêu cầu, lúc test em để 1 phút cho đỡ phải đợi lâu nhưng vẫn đủ thực tế.
+Em đặt `RECONNECT_MS = 60000` (1 phút) trong code. Lúc thật trên board có thể chỉnh lên 3-5 phút tùy yêu cầu để test, lúc test em để 1 phút cho đỡ phải đợi lâu nhưng vẫn đủ thực tế, còn trong trường hợp lâu hơn thì em sẽ port lên board để test thêm ạ.
 
 **Terminal A — chạy client:**
 ```bash
@@ -299,7 +299,7 @@ CMD cmd=9 id=4, 5, 6                ← sub lại 3 topic
 <!-- IMAGE_TEST_4 -->
 
 **Kết luận:**
-- Mongoose **không có** auto-reconnect sẵn nên phải tự code. Cam dùng hệ task/timer riêng để làm việc này, còn bên mongoose thì em dùng cơ chế đơn giản hơn — set `s_reconnect_at = mg_millis() + RECONNECT_MS` trong `MG_EV_CLOSE`, sau đó main loop check thời điểm này mỗi vòng poll, đến giờ thì gọi lại `mg_mqtt_connect()`.
+- Mongoose **không có** auto-reconnect sẵn nên phải tự code. Bên mongoose thì em dùng cơ chế  — set `s_reconnect_at = mg_millis() + RECONNECT_MS` trong `MG_EV_CLOSE`, sau đó main loop check thời điểm này mỗi vòng poll, đến giờ thì gọi lại `mg_mqtt_connect()`.
 - Tự nhiên có 1 thứ hay: code sub 3 topic nằm trong handler `MG_EV_MQTT_OPEN`, mà event này fire mỗi lần CONNACK về (kể cả sau reconnect). Vậy nên sau khi reconnect xong, 3 topic tự sub lại không cần code thêm.
 - Để gọi được `mg_mqtt_connect()` từ main loop (lúc reconnect), em phải đưa `mgr`, `opts` ra ngoài thành biến `static` global, không thể để local trong `main()` như ban đầu.
 
