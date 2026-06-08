@@ -505,4 +505,3 @@ Mongoose vẫn fire `MG_EV_CLOSE` khi auth fail (rc=5), nên auto-reconnect logi
 - Repo Mongoose gốc: <https://github.com/cesanta/mongoose>
 - Tutorial Mongoose MQTT client: <https://mongoose.ws/tutorials/mqtt-client/>
 - Cesanta documentation hub: <https://mongoose.ws/documentation/>
-- MQTT 3.1.1 spec (CONNACK return codes, Will flags): <https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html>
