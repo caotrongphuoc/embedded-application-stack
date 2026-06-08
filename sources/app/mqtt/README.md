@@ -15,6 +15,7 @@ mqtt/
 │   └── mongoose.h     (thư viện gốc)
 ├── mqtt.c             (code chính)
 ├── Makefile           (build với gcc, link mongoose.c)
+├── mosq_auth.conf     (config broker mosquitto bật auth — dùng cho Test 5)
 └── README.md          (báo cáo study của em)
 ```
 
@@ -302,6 +303,78 @@ CMD cmd=9 id=4, 5, 6                ← sub lại 3 topic
 - Mongoose **không có** auto-reconnect sẵn nên phải tự code. Bên mongoose thì em dùng cơ chế  — set `s_reconnect_at = mg_millis() + RECONNECT_MS` trong `MG_EV_CLOSE`, sau đó main loop check thời điểm này mỗi vòng poll, đến giờ thì gọi lại `mg_mqtt_connect()`.
 - Tự nhiên có 1 thứ hay: code sub 3 topic nằm trong handler `MG_EV_MQTT_OPEN`, mà event này fire mỗi lần CONNACK về (kể cả sau reconnect). Vậy nên sau khi reconnect xong, 3 topic tự sub lại không cần code thêm.
 - Để gọi được `mg_mqtt_connect()` từ main loop (lúc reconnect), em phải đưa `mgr`, `opts` ra ngoài thành biến `static` global, không thể để local trong `main()` như ban đầu.
+
+---
+
+### Test 5 — Username / Password authentication
+
+**Mục đích:** Em set `opts.user = "ctp"` và `opts.pass = "aloalo"` trong code nhưng broker mặc định ở port `1883` đang để `allow_anonymous true` — kiểu gì cũng accept nên không thấy được tác dụng. Em dựng thêm 1 broker riêng ở port `1884` có bật auth để verify thật.
+
+**Setup broker auth:** Em có sẵn file `mosq_auth.conf` trong project, chỉ cần 2 lệnh:
+
+```bash
+# Tạo file password — user = ctp, pass = aloalo (chạy 1 lần, file lưu ở /tmp/mosq_pw)
+mosquitto_passwd -c -b /tmp/mosq_pw ctp aloalo
+
+# Chạy broker auth ở port 1884 (terminal riêng)
+mosquitto -c mosq_auth.conf
+```
+
+Nội dung file `mosq_auth.conf`:
+```
+listener 1884
+allow_anonymous false
+password_file /tmp/mosq_pw
+persistence false
+```
+
+Trước khi test em verify broker hoạt động bằng `mosquitto_pub`:
+```bash
+# Pass đúng → OK
+mosquitto_pub -h 127.0.0.1 -p 1884 -u ctp -P aloalo -t x -m y
+
+# Pass sai → "Connection Refused: not authorised"
+mosquitto_pub -h 127.0.0.1 -p 1884 -u ctp -P WRONG -t x -m y
+```
+
+**Test 5a — Pass đúng:** Sửa URL trong code thành `mqtt://127.0.0.1:1884`, build, chạy.
+
+```bash
+./mqtt
+```
+
+Kết quả mong đợi:
+```
+Connecting to mqtt://127.0.0.1:1884 ...
+CONNACK rc=0                          ← broker chấp nhận user/pass
+CMD cmd=9 id=1, 2, 3                  ← 3 SUBACK
+```
+
+<!-- IMAGE_TEST_5a -->
+
+**Test 5b — Pass sai:** Sửa `opts.pass = mg_str("WRONG")` rồi build, chạy lại.
+
+```bash
+./mqtt
+```
+
+Kết quả mong đợi:
+```
+Connecting to mqtt://127.0.0.1:1884 ...
+CONNACK rc=5                          ← broker reject (5 = not authorized)
+MQTT auth failed, code 5              ← log từ mongoose nội bộ
+CLOSE
+Will auto-reconnect in 60000 ms       ← code tự retry nhưng cứ sai pass thì cứ rc=5 mãi
+```
+
+<!-- IMAGE_TEST_5b -->
+
+**Ý nghĩa:**
+- `opts.user` + `opts.pass` được mongoose encode vào gói CONNECT (set 2 bit `MQTT_HAS_USER_NAME` + `MQTT_HAS_PASSWORD` trong Connect Flags byte) — broker đọc và validate
+- CONNACK `rc=5` là code "not authorized" theo MQTT 3.1.1 spec. Các code khác: `1` = sai protocol version, `2` = client_id rejected, `3` = server unavailable, `4` = bad user/pass format
+- Khi auth fail, mongoose tự set `c->is_closing = 1` ([mongoose.c:6877](lib/mongoose.c#L6877)) → fire `MG_EV_CLOSE` → auto-reconnect logic của em vẫn kích hoạt nhưng vô ích vì pass vẫn sai → loop mãi cho đến khi user can thiệp. Production phải có logic dừng retry sau N lần fail liên tiếp.
+
+**Restore sau test:** đổi lại URL `1883` và `opts.pass = "aloalo"`, kill broker auth bằng `pkill -f mosq_auth`.
 
 ---
 
