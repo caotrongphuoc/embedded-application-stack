@@ -452,8 +452,6 @@ mosquitto_pub -h 127.0.0.1 -p 1884 -u ctp -P olaola -t x -m hello
 
 Khi đổi `opts.pass = mg_str("olaola")` trong `mqtt.c` và build lại, `./mqtt` sẽ nhận CONNACK với return code = 5 (= "not authorized" theo MQTT 3.1.1 spec). Trong code của em, `MG_EV_MQTT_OPEN` sẽ log `CONNACK rc=5`, sau đó Mongoose tự set `c->is_closing = 1` ở [mongoose.c:6877](../application/sources/app/mqtt/lib/mongoose.c#L6877) → fire `MG_EV_CLOSE` → auto-reconnect logic vẫn kích hoạt nhưng vô ích vì pass vẫn sai → loop mãi cho đến khi user can thiệp.
 
-> **Cải thiện cho production:** thêm logic dừng retry sau N lần fail liên tiếp với `rc != 0` (hoặc backoff exponential), tránh DOS broker bằng request retry. Đây là item em ghi nhớ để thêm khi port lên board.
-
 **Ý nghĩa Test 5:**
 - `opts.user` + `opts.pass` được Mongoose encode vào gói CONNECT: set 2 bit "User Name Flag" và "Password Flag" trong Connect Flags byte, đồng thời append 2 chuỗi (length-prefixed) vào payload.
 - CONNACK return code theo MQTT 3.1.1 spec:
