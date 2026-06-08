@@ -590,5 +590,4 @@ Bonus: vì sub topic nằm trong handler `MG_EV_MQTT_OPEN` (fire mỗi lần CON
 ## Tham khảo
 
 - Repo Mongoose gốc: <https://github.com/cesanta/mongoose>
-- Tutorial Mongoose MQTT client: <https://mongoose.ws/tutorials/mqtt-client/>
 - Cesanta documentation hub: <https://mongoose.ws/documentation/>
