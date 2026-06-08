@@ -555,7 +555,6 @@ Terminal 4 (phải) — publisher: 2 lệnh `mosquitto_pub -t Request -m "do som
 - `mg_mqtt_pub()` chỉ cần 1 lệnh — broker trả PUBACK (`cmd=4`) vì client pub với QoS 1. Có thể thấy 3 PUBACK liên tiếp: `id=4` cho Status `online`, `id=5` và `id=6` cho 2 Response. Packet ID tăng monotonic từ counter chung của Mongoose (sau 3 SUBACK `id=1/2/3` ban đầu là PUBLISH `id=4` của Status, rồi 2 PUBLISH `id=5/6` của Response).
 - `retain=true` trên Status pub có nghĩa broker lưu lại msg này. Subscriber **kết nối sau** vẫn nhận được — đó là lý do Terminal 1 in được dòng `online` ngay khi vừa sub xong (chưa cần `./mqtt` pub gì lúc đó).
 - Vì client cũng sub topic `Status` mà chính nó pub, broker forward msg về client (loop-back) — đây là đặc tính mặc định của Mosquitto. Dòng `CMD cmd=3 id=2` ở đầu screenshot chính là gói PUBLISH broker đẩy về (broker tự assign packet id cho downlink, không trùng counter của client).
-- Mongoose return `uint16_t` packet ID cho `mg_mqtt_pub()` — em chưa lưu lại giá trị này (cam có dùng `m_mid` để track). Nếu cần track PUBACK cho từng msg riêng (vd: retry khi timeout), sẽ phải lưu lại.
 
 ---
 
