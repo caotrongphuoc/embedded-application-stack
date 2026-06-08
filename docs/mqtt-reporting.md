@@ -32,6 +32,7 @@ Cột "Tham khảo source" link thẳng tới dòng khai báo trong `mongoose.h`
 | `mg_mgr_poll(mgr, ms)` | 1 vòng event loop, chờ tối đa `ms` milli giây | [h:1804](../application/sources/app/mqtt/lib/mongoose.h#L1804) · [c:13777](../application/sources/app/mqtt/lib/mongoose.c#L13777) |
 | `mg_mgr_free(mgr)` | Đóng mọi connection còn lại + giải phóng tài nguyên | [h:1806](../application/sources/app/mqtt/lib/mongoose.h#L1806) · [c:7242](../application/sources/app/mqtt/lib/mongoose.c#L7242) |
 | `mg_mqtt_connect(mgr, url, opts, fn, fn_data)` | Mở TCP + gửi gói CONNECT | [h:3088](../application/sources/app/mqtt/lib/mongoose.h#L3088) · [c:6961](../application/sources/app/mqtt/lib/mongoose.c#L6961) |
+| `mg_mqtt_pub(c, opts)` | Gửi gói PUBLISH, trả về `uint16_t` packet ID | [h:3094](../application/sources/app/mqtt/lib/mongoose.h#L3094) · [c:6719](../application/sources/app/mqtt/lib/mongoose.c#L6719) |
 | `mg_mqtt_sub(c, opts)` | Gửi gói SUBSCRIBE (1 topic mỗi lần gọi) | [h:3095](../application/sources/app/mqtt/lib/mongoose.h#L3095) · [c:6779](../application/sources/app/mqtt/lib/mongoose.c#L6779) |
 | `mg_mqtt_unsub(c, opts)` | Gửi gói UNSUBSCRIBE | [h:3096](../application/sources/app/mqtt/lib/mongoose.h#L3096) · [c:6783](../application/sources/app/mqtt/lib/mongoose.c#L6783) |
 | `mg_mqtt_disconnect(c, opts)` | Gửi gói DISCONNECT (2 byte: `0xE0 0x00`) | [h:3102](../application/sources/app/mqtt/lib/mongoose.h#L3102) · [c:6944](../application/sources/app/mqtt/lib/mongoose.c#L6944) |
@@ -487,6 +488,75 @@ Khi đổi `opts.pass = mg_str("olaola")` trong `mqtt.c` và build lại, `./mqt
 - Broker Mosquitto 2.x dùng `rc=5` cho cả "không đúng pass" lẫn "user không tồn tại" — không phân biệt, để tránh information leak.
 
 **Restore sau test:** đổi lại URL `1883` và `opts.pass = "aloalo"`, kill broker auth bằng `pkill -f mosq_auth`.
+
+---
+
+### Test 6 — Publish: client tự gửi message lên broker
+
+**Mục đích:** Verify client thực sự publish được message lên broker qua `mg_mqtt_pub()`. Em demo 2 case publish trong code:
+1. Lúc CONNACK về, pub `{"status":"online"}` lên topic `Status` với `retain=true` — báo cho cloud biết camera đã online.
+2. Mỗi khi nhận msg trên topic `Request`, pub `{"status":"ok"}` lên topic `Response` — giả lập việc trả lời command từ cloud.
+
+**Code tham chiếu:**
+- [`mqtt.c` L31-L40](../application/sources/app/mqtt/mqtt.c#L31-L40) — pub status `online` cuối handler `MG_EV_MQTT_OPEN`.
+- [`mqtt.c` L52-L60](../application/sources/app/mqtt/mqtt.c#L52-L60) — pub response trong handler `MG_EV_MQTT_MSG` khi nhận msg trên `Request`.
+
+**Setup:** 3 terminal.
+
+**Terminal A — sub `Status` từ ngoài để xem msg `online`:**
+```bash
+mosquitto_sub -h 127.0.0.1 -t Status -v
+```
+
+**Terminal B — sub `Response` từ ngoài để xem response khi gửi Request:**
+```bash
+mosquitto_sub -h 127.0.0.1 -t Response -v
+```
+
+**Terminal C — chạy client + gửi 2 cmd lên `Request`:**
+```bash
+./mqtt &
+sleep 1
+mosquitto_pub -h 127.0.0.1 -t Request -m "do something"
+mosquitto_pub -h 127.0.0.1 -t Request -m "another cmd"
+```
+
+<!-- IMAGE_TEST_6 -->
+
+**Đọc evidence:**
+
+Terminal A thấy:
+```
+Status {"status":"online"}
+```
+
+Terminal B thấy:
+```
+Response {"status":"ok"}
+Response {"status":"ok"}
+```
+
+Terminal C (client log):
+```
+CONNACK rc=0
+CMD cmd=2 id=0
+CMD cmd=9 id=1, 2, 3                                    ← 3 SUBACK
+RECV topic='Status' payload='{"status":"online"}'       ← chính client cũng nhận msg "online" vì đã sub Status
+CMD cmd=3 id=1                                          ← PUBLISH (Status online, do client tự pub)
+CMD cmd=4 id=4                                          ← PUBACK cho msg vừa pub
+RECV topic='Request' payload='do something'             ← msg từ Terminal C
+CMD cmd=3 id=0
+CMD cmd=4 id=5                                          ← PUBACK cho msg Response vừa pub
+RECV topic='Request' payload='another cmd'
+CMD cmd=3 id=0
+CMD cmd=4 id=6                                          ← PUBACK cho msg Response thứ 2
+```
+
+**Quan sát:**
+- `mg_mqtt_pub()` chỉ cần 1 lệnh — broker tự xử lý + trả PUBACK (`cmd=4`) vì pub với QoS 1.
+- Vì client sub luôn topic `Status` mà chính nó pub vào → client cũng RECV lại msg `online` của chính mình (giống self-loopback). Đây là đặc tính của MQTT: broker route msg cho mọi subscriber, bao gồm cả publisher nếu publisher cũng sub.
+- `retain=true` trong msg `Status` có nghĩa broker lưu lại msg này. Subscriber **kết nối sau** vẫn nhận được. Em có thể verify: sau khi client đã ngắt kết nối, mở terminal mới chạy `mosquitto_sub -h 127.0.0.1 -t Status -v` — vẫn thấy `{"status":"online"}` mặc dù không có publisher đang chạy.
+- Mongoose return `uint16_t` packet ID cho `mg_mqtt_pub()` — em chưa lưu lại giá trị này (cam có dùng `m_mid` để track). Nếu cần track PUBACK cho từng msg riêng (vd: retry khi timeout), sẽ phải lưu lại.
 
 ---
 

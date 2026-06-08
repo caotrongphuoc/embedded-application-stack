@@ -30,6 +30,15 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
 		opts.qos   = 1;
 		// mg_mqtt_sub: gui goi SUBSCRIBE, dang ky nhan msg tu topic
 		mg_mqtt_sub(c, &opts);
+
+		struct mg_mqtt_opts pub_opts;
+		memset(&pub_opts, 0, sizeof(pub_opts));
+		pub_opts.topic   = mg_str("Status");
+		pub_opts.message = mg_str("{\"status\":\"online\"}");
+		pub_opts.qos     = 1;
+		pub_opts.retain  = true;
+		// mg_mqtt_pub: gui goi PUBLISH, tra ve packet ID
+		mg_mqtt_pub(c, &pub_opts);
 	}
 	else if (ev == MG_EV_MQTT_CMD) {
 		struct mg_mqtt_message *m = ev_data;
@@ -40,6 +49,16 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
 		MG_INFO(("RECV topic='%.*s' payload='%.*s'",
 		         (int) m->topic.len, m->topic.buf,
 		         (int) m->data.len, m->data.buf));
+
+		if (mg_strcmp(m->topic, mg_str("Request")) == 0) {
+			struct mg_mqtt_opts pub_opts;
+			memset(&pub_opts, 0, sizeof(pub_opts));
+			pub_opts.topic   = mg_str("Response");
+			pub_opts.message = mg_str("{\"status\":\"ok\"}");
+			pub_opts.qos     = 1;
+			// mg_mqtt_pub: gui goi PUBLISH, tra ve packet ID
+			mg_mqtt_pub(c, &pub_opts);
+		}
 
 		// Cloud gui lenh "STOP_SUB" -> huy dang ky topic
 		if (mg_strcmp(m->data, mg_str("STOP_SUB")) == 0) {
