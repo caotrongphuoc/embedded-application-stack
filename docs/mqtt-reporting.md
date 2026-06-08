@@ -218,7 +218,12 @@ demo/mqtt/will client's disconnected
 
 → Broker phát hiện TCP rớt mà chưa nhận gói DISCONNECT → fire Will message lên topic `demo/mqtt/will`.
 
-<!-- IMAGE_TEST_2 -->
+<table align="center">
+  <tr>
+    <td align="center"><img src="../resources/images/mqtt/mqtt_last_will.png" alt="mqtt_last_will" width="1700"/></td>
+  </tr>
+</table>
+<p align="center"><strong><em>Hình 2:</em></strong> Last Will and Testament (LWT)</p>
 
 **Ý nghĩa:**
 - `opts.topic` + `opts.message` trong CONNECT options chính là Will (không phải topic data)
@@ -249,7 +254,12 @@ mosquitto_sub -h 127.0.0.1 -t 'demo/mqtt/#' -v
 - Terminal B in thêm `CLOSE` rồi exit
 - Terminal A **không in gì** — Will không fire
 
-<!-- IMAGE_TEST_3 -->
+<table align="center">
+  <tr>
+    <td align="center"><img src="../resources/images/mqtt/mqtt_gratefully_disconnecting.png" alt="mqtt_gratefully_disconnecting" width="1700"/></td>
+  </tr>
+</table>
+<p align="center"><strong><em>Hình 3:</em></strong> Gratefully disconnecting</p>
 
 **Ý nghĩa:**
 - Mongoose **không tự bắt signal** — đó là việc của libc qua `<signal.h>`
@@ -302,7 +312,12 @@ CONNACK rc=0                        ← reconnect thành công
 CMD cmd=9 id=4, 5, 6                ← sub lại 3 topic
 ```
 
-<!-- IMAGE_TEST_4 -->
+<table align="center">
+  <tr>
+    <td align="center"><img src="../resources/images/mqtt/mqtt_auto_reconnect.png" alt="mqtt_auto_reconnect" width="1700"/></td>
+  </tr>
+</table>
+<p align="center"><strong><em>Hình 4:</em></strong> Automatically reconnecting</p>
 
 **Kết luận:**
 - Mongoose **không có** auto-reconnect sẵn nên phải tự code. Bên mongoose thì em dùng cơ chế  — set `s_reconnect_at = mg_millis() + RECONNECT_MS` trong `MG_EV_CLOSE`, sau đó main loop check thời điểm này mỗi vòng poll, đến giờ thì gọi lại `mg_mqtt_connect()`.
@@ -355,7 +370,12 @@ CONNACK rc=0                          ← broker chấp nhận user/pass
 CMD cmd=9 id=1, 2, 3                  ← 3 SUBACK
 ```
 
-<!-- IMAGE_TEST_5a -->
+<table align="center">
+  <tr>
+    <td align="center"><img src="../resources/images/mqtt/mqtt_correct_pass.png" alt="mqtt_correct_pass" width="1700"/></td>
+  </tr>
+</table>
+<p align="center"><strong><em>Hình 5a:</em></strong> Correct pass</p>
 
 **Test 5b — Pass sai:** Sửa `opts.pass = mg_str("WRONG")` rồi build, chạy lại.
 
@@ -372,7 +392,12 @@ CLOSE
 Will auto-reconnect in 60000 ms       ← code tự retry nhưng cứ sai pass thì cứ rc=5 mãi
 ```
 
-<!-- IMAGE_TEST_5b -->
+<table align="center">
+  <tr>
+    <td align="center"><img src="../resources/images/mqtt/mqtt_incorrect_pass.png" alt="mqtt_incorrect_pass" width="1700"/></td>
+  </tr>
+</table>
+<p align="center"><strong><em>Hình 5b:</em></strong> Incorrect pass</p>
 
 **Ý nghĩa:**
 - `opts.user` + `opts.pass` được mongoose encode vào gói CONNECT (set 2 bit `MQTT_HAS_USER_NAME` + `MQTT_HAS_PASSWORD` trong Connect Flags byte) — broker đọc và validate
