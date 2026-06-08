@@ -176,7 +176,12 @@ CMD cmd=11 ...                       ← UNSUBACK (đã unsub topic Request)
 
 Sau khi nhận `STOP_SUB`, msg tiếp theo (`check after stop`) **không** được nhận nữa vì client đã unsub topic `Request`.
 
-<!-- IMAGE_TEST_1 -->
+<table align="center">
+  <tr>
+    <td align="center"><img src="resources/images/mqtt/mqtt_subcribe_publish_unsubcribe.png" alt="mqtt_subcribe_publish_unsubcribe" width="480"/></td>
+  </tr>
+</table>
+<p align="center"><strong><em>Figure 1:</em></strong> Subcribe, publish and unsubcribe</p>
 
 **Ý nghĩa:**
 - `mg_mqtt_unsub()` chỉ cần 1 lệnh, broker xử lý ngay lập tức
