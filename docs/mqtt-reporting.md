@@ -304,7 +304,7 @@ mosquitto_sub -h 127.0.0.1 -t 'demo/mqtt/#' -v
 
 ### Test 4 — Auto-reconnect khi mất kết nối
 
-**Mục đích:** Verify client tự kết nối lại khi broker bị tắt rồi bật lại. Sự cố mạng/restart broker là chuyện bình thường trong production, app phải sống được qua đó.
+**Mục đích:** Verify client tự kết nối lại khi broker bị tắt rồi bật lại. Sự cố mạng/restart broker là chuyện bình thường, app phải sống được qua đó.
 
 **Setup:** 2 terminal. Em dùng luôn broker chính ở `127.0.0.1:1883` qua `systemd`, `stop` rồi `start` để mô phỏng broker chết tạm thời.
 
