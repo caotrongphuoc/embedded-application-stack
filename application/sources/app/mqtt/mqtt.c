@@ -100,7 +100,7 @@ int main(void) {
 	signal(SIGTERM, on_sigint);
 
 	// mg_mqtt_connect: mo TCP + gui goi CONNECT (kem Will + user/pass)
-	s_conn = mg_mqtt_connect(&s_mgr, "mqtt://127.0.0.1:1883", &s_opts, fn, NULL);
+	s_conn = mg_mqtt_connect(&s_mgr, "mqtt://192.168.1.1:1883", &s_opts, fn, NULL);
 
 	// mg_mgr_poll: 1 vong event (doi epoll, doc/ghi socket, goi callback)
 	while (!s_quit) {
