@@ -109,7 +109,7 @@ int main(void) {
 		// Reconnect check: connection da dong va da qua thoi diem retry
 		if (s_conn == NULL && s_reconnect_at > 0 && mg_millis() >= s_reconnect_at) {
 			s_reconnect_at = 0;
-			s_conn = mg_mqtt_connect(&s_mgr, "mqtt://127.0.0.1:1883", &s_opts, fn, NULL);
+			s_conn = mg_mqtt_connect(&s_mgr, "mqtt://192.168.1.1:1883", &s_opts, fn, NULL);
 		}
 	}
 
