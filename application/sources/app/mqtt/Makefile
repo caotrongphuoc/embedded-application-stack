@@ -1,10 +1,11 @@
-CC      =/home/ctp/Workspace/Sources/CAMERA/AnyCloud39AV100_SDK_V1.11_uclibc_7.3/AnyCloud39AV100_SDK_V1.11/tools/arm-anycloud-linux-uclibcgnueabi-v7.3.0/bin/arm-anycloud_v7.3.0-linux-uclibcgnueabi-gcc
-CFLAGS  = -W -Wall -O2 -Ilib
+CC      = gcc
+CFLAGS  = -W -Wall -O2 -Ilib -DMG_TLS=MG_TLS_MBED
+LDFLAGS = -lmbedtls -lmbedx509 -lmbedcrypto
 SRC     = mqtt.c lib/mongoose.c
 BIN     = mqtt
 
 $(BIN): $(SRC)
-	$(CC) $(CFLAGS) $(SRC) -o $(BIN)
+	$(CC) $(CFLAGS) $(SRC) -o $(BIN) $(LDFLAGS)
 
 clean:
 	rm -f $(BIN)
