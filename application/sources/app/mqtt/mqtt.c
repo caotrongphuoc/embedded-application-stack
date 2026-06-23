@@ -40,12 +40,12 @@ static void fn(struct mg_connection *c, int ev, void *ev_data)
 		// mg_mqtt_sub: gui goi SUBSCRIBE, dang ky nhan msg tu topic
 		mg_mqtt_sub(c, &opts);
 
-		struct mg_mqtt_opts pub_opts;
-		memset(&pub_opts, 0, sizeof(pub_opts));
-		pub_opts.topic = mg_str("Status");
-		pub_opts.message = mg_str("{\"status\":\"online\"}");
-		pub_opts.qos = 1;
-		pub_opts.retain = true;
+		struct mg_mqtt_opts pub_opts = {
+			.topic = mg_str("Status"),
+			.message = mg_str("{\"status\":\"online\"}"),
+			.qos = 1,
+			.retain = true,
+		};
 		// mg_mqtt_pub: gui goi PUBLISH, tra ve packet ID
 		mg_mqtt_pub(c, &pub_opts);
 	}
@@ -65,7 +65,7 @@ static void fn(struct mg_connection *c, int ev, void *ev_data)
 				.name = mg_url_host(MQTT_SERVER_URL),
 			};
 			mg_tls_init(c, &opts);
-			free((void *)ca.buf);
+			mg_free((void *)ca.buf);
 		}
 	}
 	else if (ev == MG_EV_MQTT_CMD)
@@ -135,7 +135,12 @@ int main(void)
 	signal(SIGTERM, on_sigint);
 
 	// mg_mqtt_connect: mo TCP + gui goi CONNECT (kem Will + user/pass)
-	s_conn = mg_mqtt_connect(&s_mgr, MQTT_SERVER_URL, &s_opts, fn, NULL);
+	if ((s_conn = mg_mqtt_connect(&s_mgr, MQTT_SERVER_URL, &s_opts, fn, NULL)) == NULL)
+	{
+		MG_ERROR(("Failed to connect to MQTT server"));
+		s_reconnect_at = mg_millis() + RECONNECT_MS;
+		MG_INFO(("Will auto-reconnect in %d ms", RECONNECT_MS));
+	}
 
 	// mg_mgr_poll: 1 vong event (doi epoll, doc/ghi socket, goi callback)
 	while (!s_quit)
