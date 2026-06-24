@@ -2,8 +2,8 @@
 #include <signal.h>
 
 #define RECONNECT_MS 60000 // 1 min
-#define MQTT_SERVER_URL "mqtts://broker.hivemq.com:8883"
-#define CA_CERT_PATH "/etc/ssl/certs/ca-certificates.crt"
+#define MQTT_SERVER_URL "mqtts://localhost:8883"
+#define CA_CERT_PATH "certs/ca.crt"
 // #define CA_CERT_PATH "wrong-ca.pem"
 
 static volatile int s_quit = 0;
