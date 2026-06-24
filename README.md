@@ -8,8 +8,6 @@ Connectivity stack cho ứng dụng embedded — MQTT, HTTP/HTTPS, TLS — build
 |---|---|---|
 | MQTT  | Done study trên Linux (mosquitto local) — sub/pub/unsub, Last Will, graceful disconnect, auto-reconnect, auth (user/pass), TLS using mbedtls | [docs/mqtt-reporting.md](docs/mqtt-reporting.md) |
 | HTTP  | TODO | — |
-| HTTPS | TODO | — |
-| TLS   | TODO | — |
 
 Chưa port lên board thật.
 
