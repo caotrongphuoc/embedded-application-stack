@@ -558,6 +558,119 @@ Terminal 4 (phải) — publisher: 2 lệnh `mosquitto_pub -t Request -m "do som
 
 ---
 
+### Test 7 — TLS: kết nối client tới broker qua `mqtts://` với self-signed CA
+
+**Mục đích:** Nâng cấp kết nối từ plain TCP (`mqtt://`) lên TLS (`mqtts://`) để mã hóa dữ liệu giữa client và broker. Em verify: (a) handshake TLS thành công với CA đúng → pub/sub hoạt động bình thường, (b) handshake fail khi CA sai → connection bị reject ngay từ giai đoạn TLS.
+
+**Code tham chiếu:**
+- [`mqtt.c` L5-L6](../application/sources/app/mqtt/mqtt_client/mqtt.c#L5-L6) — đổi URL sang `mqtts://localhost:8883` và `CA_CERT_PATH = "certs/ca.crt"` (CA tự ký của broker local, không dùng system trust store vì mbedtls không nuốt nổi bundle 220KB với 147 cert mà các build mặc định không support hết thuật toán).
+- [`mqtt.c` L52-L70](../application/sources/app/mqtt/mqtt_client/mqtt.c#L52-L70) — handler `MG_EV_CONNECT`: đọc CA bằng `mg_file_read`, gọi `mg_tls_init(c, &opts)` với `opts.ca` = nội dung CA + `opts.name` = host từ URL (dùng cho SNI và CN/SAN verification).
+- [`Makefile` L2-L3](../application/sources/app/mqtt/mqtt_client/Makefile#L2-L3) — bật TLS backend mbedtls: `-DMG_TLS=MG_TLS_MBED` + link `-lmbedtls -lmbedx509 -lmbedcrypto`.
+
+#### Phase 1 — Setup CA + cert + broker (1 lần)
+
+Em để artifact TLS trong folder `certs/` cạnh `mqtt.c`:
+
+```bash
+mkdir -p certs && cd certs
+
+# CA tự ký
+openssl genrsa -out ca.key 2048
+openssl req -new -x509 -days 3650 -key ca.key -out ca.crt \
+  -subj "/C=VN/ST=HCM/O=CTP-Test/CN=ctp-test-ca"
+
+# Server cert ký bởi CA, SAN gồm cả IP và DNS
+openssl genrsa -out server.key 2048
+openssl req -new -key server.key -out server.csr \
+  -subj "/C=VN/ST=HCM/O=CTP-Test/CN=127.0.0.1"
+cat > server.ext <<'EOF'
+subjectAltName = @alt_names
+[alt_names]
+IP.1  = 127.0.0.1
+DNS.1 = localhost
+EOF
+openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial \
+  -out server.crt -days 3650 -extfile server.ext
+
+cd ..
+```
+
+Broker config (`mosq_tls.conf`, cạnh `mqtt.c`):
+
+```
+listener 8883
+allow_anonymous true
+cafile   certs/ca.crt
+certfile certs/server.crt
+keyfile  certs/server.key
+persistence false
+```
+
+> Note: Folder `certs/` đã được thêm vào `.gitignore`
+
+#### Phase 2 — Test 7a: Pub/Sub qua TLS (positive)
+
+**Setup:** 3 terminal, đều ở thư mục `mqtt_client/`.
+
+**Terminal A — broker TLS:**
+```bash
+mosquitto -c mosq_tls.conf -v
+```
+
+**Terminal B — chạy client TLS:**
+```bash
+./mqtt
+```
+
+**Terminal C — publish qua TLS bằng mosquitto_pub:**
+```bash
+mosquitto_pub -h localhost -p 8883 --cafile certs/ca.crt -t Request -m "tls hello"
+mosquitto_pub -h localhost -p 8883 --cafile certs/ca.crt -t Request -m "STOP_SUB"
+mosquitto_pub -h localhost -p 8883 --cafile certs/ca.crt -t Request -m "after stop"
+```
+
+**Đọc evidence — log Terminal B (`./mqtt`):**
+
+```
+CONNACK rc=0                                          ← TLS handshake xong + MQTT CONNECT accepted
+CMD cmd=2 id=0                                        ← CONNACK echo qua MG_EV_MQTT_CMD
+CMD cmd=9 id=1                                        ← SUBACK 'Request'
+CMD cmd=9 id=2                                        ← SUBACK 'Signaling'
+CMD cmd=9 id=3                                        ← SUBACK 'Status'
+RECV topic='Status' payload='{"status":"online"}'     ← retained msg về (lần test cũ)
+RECV topic='Status' payload='{"status":"online"}'     ← chính client tự pub lúc CONNACK (loop-back)
+CMD cmd=4 id=4                                        ← PUBACK cho msg Status mình pub
+RECV topic='Request' payload='tls hello'              ← msg từ Terminal C
+CMD cmd=4 id=5                                        ← PUBACK cho Response mình tự pub
+RECV topic='Request' payload='STOP_SUB'
+CMD cmd=4 id=6                                        ← PUBACK cho Response thứ 2
+CMD cmd=11 id=7                                       ← UNSUBACK (đã unsub 'Request')
+CLOSE                                                 ← Ctrl+C → graceful disconnect
+```
+
+Msg `"after stop"` **không** xuất hiện trong Terminal B → đúng kỳ vọng: client đã UNSUBSCRIBE topic `Request` sau khi nhận `STOP_SUB`. Logic Test 1 vẫn hoạt động nguyên vẹn qua kênh TLS.
+
+#### Phase 3 — Test 7b: Wrong CA → handshake fail (negative)
+
+Để chứng minh client thực sự verify cert chứ không phải bypass, em tạm thời sửa `CA_CERT_PATH = "/tmp/wrong-ca.pem"` (file rác không phải PEM hợp lệ), build lại và chạy:
+
+```
+mongoose.c:19470:mg_load_cert  cert err 0x2180        ← mbedtls không parse được CA file
+mongoose.c:1934:mg_error       1 4 socket error
+CLOSE
+Will auto-reconnect in 60000 ms                       ← auto-reconnect logic vẫn kích hoạt
+```
+
+**Ý nghĩa:** mbedtls fail ngay ở bước **load CA** (error `0x2180` = `MBEDTLS_ERR_PEM_NO_HEADER_FOOTER_PRESENT`) — chưa kịp đi tới handshake. Nếu sửa thành 1 CA hợp lệ nhưng không khớp với cert broker, lỗi sẽ là `X509 - Certificate verification failed` (`-0x2700`) ở giai đoạn handshake — cũng dẫn tới `CLOSE` và reconnect. Cả hai case đều confirm code không skip TLS verification.
+
+**Ý nghĩa Test 7:**
+- Nâng cấp `mqtt://` → `mqtts://` về phía code chỉ cần thêm handler `MG_EV_CONNECT` gọi `mg_tls_init()` — Mongoose tự handle phần encrypt/decrypt sau đó, các API `mg_mqtt_pub/sub/unsub` không thay đổi gì.
+- `opts.name` trong `mg_tls_opts` được dùng cho **2 việc**: SNI (Server Name Indication trong TLS ClientHello) và verify hostname against CN/SAN của server cert. Phải khớp với cert broker, nếu không sẽ fail như đã nêu ở bẫy IP/DNS phía trên.
+- mbedtls strict hơn OpenSSL về thuật toán support và validation rule — pattern an toàn cho embedded là **pin đúng 1 CA** mình tin (file nhỏ, gọn) thay vì load cả system trust store.
+- Tất cả Test 1-6 ở trên đã chạy trên plain TCP `mqtt://127.0.0.1:1883`. Để chạy lại các test đó bằng TLS, đổi `MQTT_SERVER_URL` về `mqtts://localhost:8883`, broker chạy `mosq_tls.conf`, và mọi lệnh `mosquitto_pub/sub` phải thêm `-p 8883 --cafile certs/ca.crt`.
+
+---
+
 ## Kết luận chung
 
 ### Bẫy `opts.qos` trong CONNECT
