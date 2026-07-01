@@ -1,3 +1,9 @@
+<div align="center">
+  
+![Repo Traffic](https://komarev.com/ghpvc/?username=embedded-application-stack&label=Repo+Traffic&color=blue&style=flat-square)
+
+</div>
+
 # Embedded Application Stack
 
 Connectivity stack cho ứng dụng embedded — MQTT, HTTP/HTTPS, TLS — build trên thư viện [mongoose](https://github.com/cesanta/mongoose). Mục tiêu cuối: chạy được trên board, hiện đang ở phase study từng giao thức trên Linux trước khi port.
