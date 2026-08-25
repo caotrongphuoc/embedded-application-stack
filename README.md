@@ -5,11 +5,11 @@
 </div>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/language-C-blue?style=flat-square&logo=c" alt="Language">
-  <img src="https://img.shields.io/badge/library-Mongoose-orange?style=flat-square" alt="Library">
-  <img src="https://img.shields.io/badge/tls-mbedTLS-green?style=flat-square" alt="TLS">
-  <img src="https://img.shields.io/badge/platform-Linux%20(study)-lightgrey?style=flat-square&logo=linux" alt="Platform">
-  <img src="https://img.shields.io/badge/license-MIT-yellow?style=flat-square" alt="License">
+  <img src="https://img.shields.io/badge/language-C-red?style=flat-square&logo=c" alt="Language">
+  <img src="https://img.shields.io/badge/library-Mongoose-red?style=flat-square" alt="Library">
+  <img src="https://img.shields.io/badge/tls-mbedTLS-red?style=flat-square" alt="TLS">
+  <img src="https://img.shields.io/badge/platform-Linux%20(study)-red?style=flat-square&logo=linux" alt="Platform">
+  <img src="https://img.shields.io/badge/license-MIT-red?style=flat-square" alt="License">
 </p>
 
 # Embedded Application Stack
