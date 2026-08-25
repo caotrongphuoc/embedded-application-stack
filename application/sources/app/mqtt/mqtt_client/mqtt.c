@@ -37,7 +37,7 @@ static void fn(struct mg_connection *c, int ev, void *ev_data)
 
 		opts.topic = mg_str("Status");
 		opts.qos = 1;
-		// mg_mqtt_sub: gui goi SUBSCRIBE, dang ky nhan msg tu topic
+		// mg_mqtt_sub: send SUBSCRIBE packet to register for messages on the topic
 		mg_mqtt_sub(c, &opts);
 
 		struct mg_mqtt_opts pub_opts = {
@@ -46,7 +46,7 @@ static void fn(struct mg_connection *c, int ev, void *ev_data)
 			.qos = 1,
 			.retain = true,
 		};
-		// mg_mqtt_pub: gui goi PUBLISH, tra ve packet ID
+		// mg_mqtt_pub: send PUBLISH packet, returns the packet ID
 		mg_mqtt_pub(c, &pub_opts);
 	}
 	else if (ev == MG_EV_CONNECT)
@@ -87,17 +87,17 @@ static void fn(struct mg_connection *c, int ev, void *ev_data)
 			pub_opts.topic = mg_str("Response");
 			pub_opts.message = mg_str("{\"status\":\"ok\"}");
 			pub_opts.qos = 1;
-			// mg_mqtt_pub: gui goi PUBLISH, tra ve packet ID
+			// mg_mqtt_pub: send PUBLISH packet, returns the packet ID
 			mg_mqtt_pub(c, &pub_opts);
 		}
 
-		// Cloud gui lenh "STOP_SUB" -> huy dang ky topic
+		// Cloud sends "STOP_SUB" command -> unsubscribe from that topic
 		if (mg_strcmp(m->data, mg_str("STOP_SUB")) == 0)
 		{
 			struct mg_mqtt_opts opts;
 			memset(&opts, 0, sizeof(opts));
 			opts.topic = m->topic;
-			// mg_mqtt_unsub: gui goi UNSUBSCRIBE, huy nhan msg tu topic
+			// mg_mqtt_unsub: send UNSUBSCRIBE packet to stop receiving from the topic
 			mg_mqtt_unsub(c, &opts);
 		}
 	}
@@ -107,7 +107,7 @@ static void fn(struct mg_connection *c, int ev, void *ev_data)
 		s_conn = NULL;
 		if (!s_quit)
 		{
-			// mg_millis: lay thoi gian hien tai (ms tu Unix epoch)
+			// mg_millis: current time in milliseconds since Unix epoch
 			s_reconnect_at = mg_millis() + RECONNECT_MS;
 			MG_INFO(("Will auto-reconnect in %d ms", RECONNECT_MS));
 		}
@@ -117,7 +117,7 @@ static void fn(struct mg_connection *c, int ev, void *ev_data)
 int main(void)
 {
 	mg_log_set(MG_LL_INFO);
-	// mg_mgr_init: khoi tao event manager (epoll fd + ID counter)
+	// mg_mgr_init: initialize the event manager (epoll fd + packet ID counter)
 	mg_mgr_init(&s_mgr);
 
 	memset(&s_opts, 0, sizeof(s_opts));
@@ -134,7 +134,7 @@ int main(void)
 	signal(SIGINT, on_sigint);
 	signal(SIGTERM, on_sigint);
 
-	// mg_mqtt_connect: mo TCP + gui goi CONNECT (kem Will + user/pass)
+	// mg_mqtt_connect: open TCP and send the CONNECT packet (with Will + user/pass)
 	if ((s_conn = mg_mqtt_connect(&s_mgr, MQTT_SERVER_URL, &s_opts, fn, NULL)) == NULL)
 	{
 		MG_ERROR(("Failed to connect to MQTT server"));
@@ -142,12 +142,12 @@ int main(void)
 		MG_INFO(("Will auto-reconnect in %d ms", RECONNECT_MS));
 	}
 
-	// mg_mgr_poll: 1 vong event (doi epoll, doc/ghi socket, goi callback)
+	// mg_mgr_poll: one event-loop iteration (wait on epoll, read/write sockets, fire callbacks)
 	while (!s_quit)
 	{
 		mg_mgr_poll(&s_mgr, 1000);
 
-		// Reconnect check: connection da dong va da qua thoi diem retry
+		// Reconnect check: connection closed and the retry deadline has passed
 		if (s_conn == NULL && s_reconnect_at > 0 && mg_millis() >= s_reconnect_at)
 		{
 			s_reconnect_at = 0;
@@ -160,13 +160,13 @@ int main(void)
 	{
 		struct mg_mqtt_opts disc_opts;
 		memset(&disc_opts, 0, sizeof(disc_opts));
-		// mg_mqtt_disconnect: gui goi DISCONNECT (2 byte) -> broker khong fire Will
+		// mg_mqtt_disconnect: send DISCONNECT packet (2 bytes) so the broker does not fire the Will
 		mg_mqtt_disconnect(s_conn, &disc_opts);
 		for (int i = 0; i < 5; i++)
 			mg_mgr_poll(&s_mgr, 100);
 	}
 
-	// mg_mgr_free: dong tat ca connection con lai + giai phong tai nguyen
+	// mg_mgr_free: close every remaining connection and free resources
 	mg_mgr_free(&s_mgr);
 	return 0;
 }
