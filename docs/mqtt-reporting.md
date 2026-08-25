@@ -353,27 +353,27 @@ mosquitto_sub -h 127.0.0.1 -t 'demo/mqtt/#' -v
 
 ---
 
-### Test 4 - Auto-reconnect khi mất kết nối
+### Test 4 - Auto-Reconnect After Broker Restart
 
-**Mục đích:** Verify client tự kết nối lại khi broker bị tắt rồi bật lại. Sự cố mạng/restart broker là chuyện bình thường, app phải sống được qua đó.
+**Purpose:** Verify that the client reconnects on its own after the broker is stopped and started again. Broker restarts and network glitches are normal events, and the application has to survive them.
 
-**Code tham chiếu:**
-- [`mqtt.c` L4](../application/sources/app/mqtt/mqtt_client/mqtt.c#L4) — macro `RECONNECT_MS = 60000` (1 phút).
-- [`mqtt.c` L104-L114](../application/sources/app/mqtt/mqtt_client/mqtt.c#L104-L114) — handler `MG_EV_CLOSE`: set `s_reconnect_at = mg_millis() + RECONNECT_MS` khi connection rớt.
-- [`mqtt.c` L146-L156](../application/sources/app/mqtt/mqtt_client/mqtt.c#L146-L156) — main loop check `s_reconnect_at` mỗi vòng poll, đến giờ thì gọi lại `mg_mqtt_connect`.
-- [`mqtt.c` L23-L41](../application/sources/app/mqtt/mqtt_client/mqtt.c#L23-L41) — sub 3 topic nằm trong `MG_EV_MQTT_OPEN` nên tự re-sub sau mỗi lần reconnect, không cần code thêm.
+**Code references:**
+- [`mqtt.c` L4](../application/sources/app/mqtt/mqtt_client/mqtt.c#L4) - `RECONNECT_MS = 60000` macro (1 minute).
+- [`mqtt.c` L104-L114](../application/sources/app/mqtt/mqtt_client/mqtt.c#L104-L114) - `MG_EV_CLOSE` handler: set `s_reconnect_at = mg_millis() + RECONNECT_MS` when the connection drops.
+- [`mqtt.c` L146-L156](../application/sources/app/mqtt/mqtt_client/mqtt.c#L146-L156) - main loop checks `s_reconnect_at` on every poll iteration and calls `mg_mqtt_connect` again when the deadline hits.
+- [`mqtt.c` L23-L41](../application/sources/app/mqtt/mqtt_client/mqtt.c#L23-L41) - the three subscriptions live inside `MG_EV_MQTT_OPEN`, so they re-subscribe automatically after every reconnect. No extra code needed.
 
-**Setup:** 2 terminal. Em dùng luôn broker chính ở `127.0.0.1:1883` qua `systemd`, `stop` rồi `start` để mô phỏng broker chết tạm thời.
+**Setup:** two terminals. The main broker at `127.0.0.1:1883` (managed by `systemd`) is stopped and restarted to simulate a temporary broker outage.
 
-Em đặt `RECONNECT_MS = 60000` (1 phút) trong code. Trên board có thể chỉnh lên tùy yêu cầu; em để 1 phút khi test cho đỡ phải chờ lâu, sau này em sẽ test kĩ hơn khi port lên board.
+`RECONNECT_MS = 60000` (1 minute) is hard-coded. On a board this can be tuned to whatever the deployment requires; one minute is a convenient trade-off during study, since it is short enough to avoid long waits but long enough to see the reconnect timer behaviour clearly.
 
-**Terminal A — chạy client:**
+**Terminal A - run the client:**
 ```bash
 ./mqtt
 ```
-Đợi `CONNACK rc=0` + 3 dòng `CMD cmd=9` (sub xong 3 topic) là OK.
+Wait for `CONNACK rc=0` followed by three `CMD cmd=9` lines (all three topics subscribed).
 
-**Terminal B — stop broker, đợi, rồi start lại:**
+**Terminal B - stop the broker, wait, then start it again:**
 ```bash
 sudo systemctl stop mosquitto && sleep 90 && sudo systemctl start mosquitto
 ```
@@ -383,65 +383,65 @@ sudo systemctl stop mosquitto && sleep 90 && sudo systemctl start mosquitto
     <td align="center"><img src="../resources/images/mqtt/mqtt_auto_reconnect.png" alt="mqtt_auto_reconnect" width="1700"/></td>
   </tr>
 </table>
-<p align="center"><strong><em>Hình 4:</em></strong> Auto-reconnect</p>
+<p align="center"><strong><em>Figure 4:</em></strong> Auto-reconnect</p>
 
-**Đọc evidence (Hình 4), 3 giai đoạn rõ ràng:**
+**Reading the evidence (Figure 4), three clear phases:**
 
 ```
-[Giai đoạn 1 — kết nối lần đầu, broker còn sống]
+[Phase 1 - initial connection, broker alive]
 CONNACK rc=0
 CMD cmd=2 id=0
-CMD cmd=9 id=1                         ← SUBACK 'Request'
-CMD cmd=9 id=2                         ← SUBACK 'Signaling'
-CMD cmd=9 id=3                         ← SUBACK 'Status'
+CMD cmd=9 id=1                         <- SUBACK 'Request'
+CMD cmd=9 id=2                         <- SUBACK 'Signaling'
+CMD cmd=9 id=3                         <- SUBACK 'Status'
 
-[Giai đoạn 2 — broker bị stop, TCP rớt]
-CLOSE                                  ← MG_EV_CLOSE fire ngay khi mất TCP
-Will auto-reconnect in 60000 ms        ← timer reconnect được set
+[Phase 2 - broker stopped, TCP drops]
+CLOSE                                  <- MG_EV_CLOSE fires as soon as TCP is lost
+Will auto-reconnect in 60000 ms        <- reconnect timer armed
 
-[Giai đoạn 2.5 — sau 60s, broker vẫn chưa lên → connect fail]
-mongoose.c:1934:mg_error 2 4 socket error   ← Mongoose log nội bộ: connect bị refused
-CLOSE                                  ← MG_EV_CLOSE fire lần nữa
-Will auto-reconnect in 60000 ms        ← timer reset, đợi tiếp 60s
+[Phase 2.5 - 60s later, broker still down, connect fails]
+mongoose.c:1934:mg_error 2 4 socket error   <- internal Mongoose log: connect() refused
+CLOSE                                  <- MG_EV_CLOSE fires again
+Will auto-reconnect in 60000 ms        <- timer rearmed, wait another 60s
 
-[Giai đoạn 3 — sau 60s nữa, broker đã start lại → reconnect OK]
+[Phase 3 - 60s later, broker back up, reconnect succeeds]
 CONNACK rc=0
 CMD cmd=2 id=0
-CMD cmd=9 id=4                         ← SUBACK 'Request' (lần 2)
-CMD cmd=9 id=5                         ← SUBACK 'Signaling'
-CMD cmd=9 id=6                         ← SUBACK 'Status'
+CMD cmd=9 id=4                         <- SUBACK 'Request' (second time)
+CMD cmd=9 id=5                         <- SUBACK 'Signaling'
+CMD cmd=9 id=6                         <- SUBACK 'Status'
 ```
 
-**Quan sát quan trọng:**
-- Packet ID tăng dần (1→2→3 ở lần đầu, rồi 4→5→6 ở lần reconnect) — Mongoose dùng 1 counter chung cho cả mgr nên không reset khi connection mới.
-- Dòng `mongoose.c:1934:mg_error 2 4 socket error` là log mặc định của Mongoose khi `connect()` syscall thất bại; "2 4" là `(fd, errno)` từ debug nội bộ.
+**Key observations:**
+- Packet IDs grow monotonically (1, 2, 3 on the first connect, then 4, 5, 6 on reconnect). Mongoose uses a single counter for the whole manager and does not reset it when a new connection opens.
+- `mongoose.c:1934:mg_error 2 4 socket error` is the default Mongoose log emitted when the `connect()` syscall fails; the "2 4" pair is `(fd, errno)` from internal debug output.
 
-**Kết luận:**
-- Mongoose **không có** auto-reconnect sẵn nên phải tự code: trong `MG_EV_CLOSE` set `s_reconnect_at = mg_millis() + RECONNECT_MS`, main loop check `mg_millis() >= s_reconnect_at` thì gọi lại `mg_mqtt_connect()`.
-- Một điểm hay: code sub 3 topic nằm trong handler `MG_EV_MQTT_OPEN`, mà event này fire mỗi lần CONNACK về (kể cả sau reconnect). Vậy nên sau khi reconnect, 3 topic tự sub lại không cần thêm code — đó là lý do em không tự gọi lại `mg_mqtt_sub()` từ main loop.
-- Để gọi được `mg_mqtt_connect()` từ main loop (lúc reconnect), em phải đưa `mgr`, `opts` ra ngoài thành biến `static` global, không thể để local trong `main()` như phiên bản đầu tiên.
+**Takeaways:**
+- Mongoose has **no** built-in auto-reconnect, so it has to be coded by hand: inside `MG_EV_CLOSE` set `s_reconnect_at = mg_millis() + RECONNECT_MS`, and inside the main loop call `mg_mqtt_connect()` again once `mg_millis() >= s_reconnect_at`.
+- Convenient side effect: because the three subscriptions live inside `MG_EV_MQTT_OPEN`, and that event fires on every CONNACK (including after reconnect), the topics are automatically re-subscribed on every reconnect without any extra logic in the main loop.
+- To call `mg_mqtt_connect()` from the main loop (during reconnect), `mgr` and `opts` have to be `static` globals, not locals inside `main()` as in the first version of the code.
 
 ---
 
-### Test 5 — Username / Password authentication
+### Test 5 - Username / Password Authentication
 
-**Mục đích:** Em set `opts.user = "ctp"` và `opts.pass = "aloalo"` trong code, nhưng broker mặc định ở port `1883` đang `allow_anonymous true` — kiểu gì cũng accept nên không thấy được tác dụng của auth. Em dựng thêm 1 broker riêng ở port `1884` có bật `allow_anonymous false` + `password_file` để verify thật cả 2 chiều: pass đúng → OK, pass sai → reject.
+**Purpose:** The code sets `opts.user = "ctp"` and `opts.pass = "aloalo"`, but the default broker on port `1883` runs with `allow_anonymous true`, so it accepts anything and the auth path never gets exercised. To actually verify authentication in both directions (correct password -> OK, wrong password -> reject), a second broker on port `1884` is set up with `allow_anonymous false` and a `password_file`.
 
-**Code tham chiếu:**
-- [`mqtt.c` L128-L129](../application/sources/app/mqtt/mqtt_client/mqtt.c#L128-L129) — set `s_opts.user = "ctp"` và `s_opts.pass = "aloalo"` để Mongoose encode vào gói CONNECT (bật cờ User Name Flag + Password Flag).
-- [`mqtt.c` L25](../application/sources/app/mqtt/mqtt_client/mqtt.c#L25) — log CONNACK return code trong `MG_EV_MQTT_OPEN` (rc=0 = accepted, rc=5 = not authorized).
+**Code references:**
+- [`mqtt.c` L128-L129](../application/sources/app/mqtt/mqtt_client/mqtt.c#L128-L129) - `s_opts.user = "ctp"` and `s_opts.pass = "aloalo"` so Mongoose encodes them into the CONNECT packet (setting the User Name Flag and Password Flag).
+- [`mqtt.c` L25](../application/sources/app/mqtt/mqtt_client/mqtt.c#L25) - log the CONNACK return code inside `MG_EV_MQTT_OPEN` (rc=0 = accepted, rc=5 = not authorized).
 
-**Setup broker auth (1 lần):**
+**Auth broker setup (one-time):**
 
 ```bash
-# Tạo file password — user = ctp, pass = aloalo (file lưu ở /tmp/mosq_pw)
+# Create the password file (user = ctp, password = aloalo, stored at /tmp/mosq_pw)
 mosquitto_passwd -c -b /tmp/mosq_pw ctp aloalo
 
-# Chạy broker auth ở port 1884 (terminal riêng, background)
+# Run the auth broker on port 1884 (separate terminal, background)
 mosquitto -c mosq_auth.conf &
 ```
 
-Nội dung `mosq_auth.conf`:
+Contents of `mosq_auth.conf`:
 ```
 listener 1884
 allow_anonymous false
@@ -449,9 +449,9 @@ password_file /tmp/mosq_pw
 persistence false
 ```
 
-#### Test 5a — Verify broker auth: pass đúng
+#### Test 5a - Verify Auth Broker: Correct Password
 
-Trước khi đụng đến `./mqtt`, em verify broker auth hoạt động đúng bằng `mosquitto_pub`:
+Before touching `./mqtt`, verify that the auth broker itself works by using `mosquitto_pub`:
 
 ```bash
 mosquitto_pub -h 127.0.0.1 -p 1884 -u ctp -P aloalo -t x -m hello
@@ -462,11 +462,11 @@ mosquitto_pub -h 127.0.0.1 -p 1884 -u ctp -P aloalo -t x -m hello
     <td align="center"><img src="../resources/images/mqtt/mqtt_correct_pass.png" alt="mqtt_correct_pass" width="1700"/></td>
   </tr>
 </table>
-<p align="center"><strong><em>Hình 5a:</em></strong> Broker chấp nhận client với password đúng</p>
+<p align="center"><strong><em>Figure 5a:</em></strong> Broker accepts client with correct password</p>
 
-**Đọc evidence (Hình 5a):**
+**Reading the evidence (Figure 5a):**
 
-- Terminal trái — broker log (`mosquitto -c mosq_auth.conf`):
+- Left terminal - broker log (`mosquitto -c mosq_auth.conf`):
   ```
   mosquitto version 2.0.11 starting
   Config loaded from mosq_auth.conf.
@@ -477,13 +477,13 @@ mosquitto_pub -h 127.0.0.1 -p 1884 -u ctp -P aloalo -t x -m hello
   New client connected from 127.0.0.1:59374 as auto-188BEE5D-... (p2, c1, k60, u'ctp').
   Client auto-188BEE5D-... disconnected.
   ```
-  → Dòng `u'ctp'` cho thấy broker đã đọc được username từ gói CONNECT và validate password thành công.
+  The `u'ctp'` field shows that the broker parsed the username out of the CONNECT packet and validated the password successfully.
 
-- Terminal phải — lệnh client + kết quả: `mosquitto_pub -h 127.0.0.1 -p 1884 -u ctp -P aloalo -t x -m hello` thoát ngay, không có error → broker accept.
+- Right terminal - client command and result: `mosquitto_pub -h 127.0.0.1 -p 1884 -u ctp -P aloalo -t x -m hello` exits immediately with no error, so the broker accepted the connection.
 
-Khi đổi URL trong `mqtt.c` thành `mqtt://127.0.0.1:1884` và build lại, `./mqtt` sẽ in `CONNACK rc=0` rồi 3 dòng `CMD cmd=9` y như Test 1 — broker ứng xử với 2 client (`mosquitto_pub` và `./mqtt`) hoàn toàn giống nhau khi credential hợp lệ.
+If the URL in `mqtt.c` is changed to `mqtt://127.0.0.1:1884` and the binary rebuilt, `./mqtt` prints `CONNACK rc=0` followed by three `CMD cmd=9` lines exactly like in Test 1: the broker treats `mosquitto_pub` and `./mqtt` identically once the credentials are valid.
 
-#### Test 5b — Verify broker auth: pass sai
+#### Test 5b - Verify Auth Broker: Wrong Password
 
 ```bash
 mosquitto_pub -h 127.0.0.1 -p 1884 -u ctp -P olaola -t x -m hello
@@ -494,68 +494,68 @@ mosquitto_pub -h 127.0.0.1 -p 1884 -u ctp -P olaola -t x -m hello
     <td align="center"><img src="../resources/images/mqtt/mqtt_incorrect_pass.png" alt="mqtt_incorrect_pass" width="1700"/></td>
   </tr>
 </table>
-<p align="center"><strong><em>Hình 5b:</em></strong> Broker reject client với password sai</p>
+<p align="center"><strong><em>Figure 5b:</em></strong> Broker rejects client with wrong password</p>
 
-**Đọc evidence (Hình 5b):**
+**Reading the evidence (Figure 5b):**
 
-- Terminal trái — broker log có thêm 2 dòng cuối so với Hình 5a:
+- Left terminal - broker log has two extra lines compared with Figure 5a:
   ```
   New connection from 127.0.0.1:45550 on port 1884.
   Client <unknown> disconnected, not authorised.
   ```
-  Lưu ý `Client <unknown>` — broker reject **trước khi** chấp nhận username, nên không log `u'ctp'`.
+  Note `Client <unknown>`: the broker rejects the client **before** it accepts the username, so `u'ctp'` never gets logged.
 
-- Terminal phải — output `mosquitto_pub`:
+- Right terminal - `mosquitto_pub` output:
   ```
   Connection error: Connection Refused: not authorised.
   Error: The connection was refused.
   ```
 
-Khi đổi `opts.pass = mg_str("olaola")` trong `mqtt.c` và build lại, `./mqtt` sẽ nhận CONNACK với return code = 5 (= "not authorized" theo MQTT 3.1.1 spec). Trong code của em, `MG_EV_MQTT_OPEN` sẽ log `CONNACK rc=5`, sau đó Mongoose tự set `c->is_closing = 1` ở [mongoose.c:6877](../application/sources/app/mqtt/mqtt_client/lib/mongoose.c#L6877) → fire `MG_EV_CLOSE` → auto-reconnect logic vẫn kích hoạt nhưng vô ích vì pass vẫn sai → loop mãi cho đến khi user can thiệp.
+If `opts.pass = mg_str("olaola")` is set in `mqtt.c` and the binary rebuilt, `./mqtt` receives CONNACK with return code 5 ("not authorized" per the MQTT 3.1.1 spec). `MG_EV_MQTT_OPEN` logs `CONNACK rc=5`, then Mongoose sets `c->is_closing = 1` at [mongoose.c:6877](../application/sources/app/mqtt/mqtt_client/lib/mongoose.c#L6877), which fires `MG_EV_CLOSE`. The auto-reconnect logic still kicks in but is futile because the password is still wrong, so the client loops forever until the user intervenes.
 
-**Ý nghĩa Test 5:**
-- `opts.user` + `opts.pass` được Mongoose encode vào gói CONNECT: set 2 bit "User Name Flag" và "Password Flag" trong Connect Flags byte, đồng thời append 2 chuỗi (length-prefixed) vào payload.
-- CONNACK return code theo MQTT 3.1.1 spec:
+**Test 5 takeaways:**
+- `opts.user` and `opts.pass` are encoded by Mongoose into the CONNECT packet: it sets the "User Name Flag" and "Password Flag" bits in the Connect Flags byte and appends both length-prefixed strings to the payload.
+- CONNACK return codes per the MQTT 3.1.1 spec:
   - `0` = accepted
   - `1` = unacceptable protocol version
-  - `2` = identifier rejected (client_id không hợp lệ)
+  - `2` = identifier rejected (invalid client_id)
   - `3` = server unavailable
-  - `4` = bad user name or password (format sai)
-  - `5` = not authorized (đúng format nhưng broker không cho phép)
-- Broker Mosquitto 2.x dùng `rc=5` cho cả "không đúng pass" lẫn "user không tồn tại" — không phân biệt, để tránh information leak.
+  - `4` = bad user name or password (malformed)
+  - `5` = not authorized (well-formed but the broker rejects)
+- Mosquitto 2.x returns `rc=5` for both "wrong password" and "unknown user" without distinguishing them, to avoid information leaks.
 
-**Restore sau test:** đổi lại URL `1883` và `opts.pass = "aloalo"`, kill broker auth bằng `pkill -f mosq_auth`.
+**Restore after the test:** switch the URL back to `1883` and `opts.pass = "aloalo"`, and stop the auth broker with `pkill -f mosq_auth`.
 
 ---
 
-### Test 6 — Publish: client tự gửi message lên broker
+### Test 6 - Publish: Client Sends Messages to the Broker
 
-**Mục đích:** Verify client thực sự publish được message lên broker qua `mg_mqtt_pub()`. Em demo 2 case publish trong code:
-1. Lúc CONNACK về, pub `{"status":"online"}` lên topic `Status` với `retain=true` — báo cho cloud biết camera đã online.
-2. Mỗi khi nhận msg trên topic `Request`, pub `{"status":"ok"}` lên topic `Response` — giả lập việc trả lời command từ cloud.
+**Purpose:** Verify that the client can actually publish messages to the broker via `mg_mqtt_pub()`. Two publish scenarios are exercised in the code:
+1. When CONNACK arrives, publish `{"status":"online"}` on topic `Status` with `retain=true` to announce to the cloud that the "camera" is online.
+2. Every time a message arrives on topic `Request`, publish `{"status":"ok"}` on topic `Response` to simulate answering a command from the cloud.
 
-**Code tham chiếu:**
-- [`mqtt.c` L43-L50](../application/sources/app/mqtt/mqtt_client/mqtt.c#L43-L50) — pub status `online` cuối handler `MG_EV_MQTT_OPEN`.
-- [`mqtt.c` L83-L91](../application/sources/app/mqtt/mqtt_client/mqtt.c#L83-L91) — pub response trong handler `MG_EV_MQTT_MSG` khi nhận msg trên `Request`.
+**Code references:**
+- [`mqtt.c` L43-L50](../application/sources/app/mqtt/mqtt_client/mqtt.c#L43-L50) - publish the `online` status at the end of `MG_EV_MQTT_OPEN`.
+- [`mqtt.c` L83-L91](../application/sources/app/mqtt/mqtt_client/mqtt.c#L83-L91) - publish the response inside `MG_EV_MQTT_MSG` whenever a message arrives on `Request`.
 
-**Setup:** 4 terminal.
+**Setup:** four terminals.
 
-**Terminal 1 — sub `Status` từ ngoài để xem msg `online`:**
+**Terminal 1 - external subscriber for `Status` (to see the `online` message):**
 ```bash
 mosquitto_sub -h 127.0.0.1 -t Status -v
 ```
 
-**Terminal 2 — sub `Response` từ ngoài để xem response khi gửi Request:**
+**Terminal 2 - external subscriber for `Response` (to see replies to Requests):**
 ```bash
 mosquitto_sub -h 127.0.0.1 -t Response -v
 ```
 
-**Terminal 3 — chạy client:**
+**Terminal 3 - run the client:**
 ```bash
 ./mqtt
 ```
 
-**Terminal 4 — gửi 2 cmd lên `Request`:**
+**Terminal 4 - send two commands on `Request`:**
 ```bash
 mosquitto_pub -h 127.0.0.1 -t Request -m "do something"
 mosquitto_pub -h 127.0.0.1 -t Request -m "more and more"
@@ -566,57 +566,57 @@ mosquitto_pub -h 127.0.0.1 -t Request -m "more and more"
     <td align="center"><img src="../resources/images/mqtt/mqtt_publish.png" alt="mqtt_publish" width="1700"/></td>
   </tr>
 </table>
-<p align="center"><strong><em>Hình 6:</em></strong> Publish</p>
+<p align="center"><strong><em>Figure 6:</em></strong> Publish</p>
 
-**Đọc evidence (Hình 6):**
+**Reading the evidence (Figure 6):**
 
-Terminal 1 (trái) — `mosquitto_sub -t Status`: in 2 dòng `Status {"status":"online"}`. Dòng đầu là **retained msg** broker delivery ngay khi sub mới connect (do lần test trước đã pub Status với `retain=true` nên broker lưu lại); dòng thứ 2 là msg `./mqtt` của lần test hiện tại pub khi nhận CONNACK.
+Terminal 1 (leftmost) - `mosquitto_sub -t Status`: prints two `Status {"status":"online"}` lines. The first line is the **retained message** the broker delivers as soon as the subscriber connects (a previous test published Status with `retain=true`, so the broker keeps it). The second line is the message that `./mqtt` publishes on CONNACK during the current run.
 
-Terminal 2 (trái-giữa) — `mosquitto_sub -t Response`: in 2 dòng `Response {"status":"ok"}`, mỗi dòng tương ứng với 1 cmd `Request` từ Terminal 4.
+Terminal 2 (left-middle) - `mosquitto_sub -t Response`: prints two `Response {"status":"ok"}` lines, one for each `Request` command sent from Terminal 4.
 
-Terminal 3 (giữa-phải) — output `./mqtt` (3 dòng SUBACK đầu đã scroll khỏi vùng nhìn thấy):
+Terminal 3 (middle-right) - `./mqtt` output (the first three SUBACK lines have scrolled out of view):
 ```
-CMD cmd=3 id=2                              ← PUBLISH broker forward về (Status retain loop-back)
-CMD cmd=4 id=4                              ← PUBACK broker trả cho msg Status mà client tự pub (id=4)
-RECV topic='Request' payload='do something' ← msg từ Terminal 4
-CMD cmd=3 id=0                              ← PUBLISH event cho Request (mosquitto_pub mặc định QoS 0 → id=0)
-CMD cmd=4 id=5                              ← PUBACK cho msg Response client vừa pub (id=5)
+CMD cmd=3 id=2                              <- broker forwards a PUBLISH back (Status retain loop-back)
+CMD cmd=4 id=4                              <- PUBACK for the Status message the client itself published (id=4)
+RECV topic='Request' payload='do something' <- message from Terminal 4
+CMD cmd=3 id=0                              <- PUBLISH event for Request (mosquitto_pub defaults to QoS 0, id=0)
+CMD cmd=4 id=5                              <- PUBACK for the Response the client just published (id=5)
 RECV topic='Request' payload='more and more'
 CMD cmd=3 id=0
-CMD cmd=4 id=6                              ← PUBACK cho msg Response thứ 2 (id=6)
+CMD cmd=4 id=6                              <- PUBACK for the second Response (id=6)
 ```
 
-Terminal 4 (phải) — publisher: 2 lệnh `mosquitto_pub -t Request -m "do something"` và `-m "more and more"`.
+Terminal 4 (rightmost) - publisher: the two commands `mosquitto_pub -t Request -m "do something"` and `-m "more and more"`.
 
-**Quan sát:**
-- `mg_mqtt_pub()` chỉ cần 1 lệnh — broker trả PUBACK (`cmd=4`) vì client pub với QoS 1. Có thể thấy 3 PUBACK liên tiếp: `id=4` cho Status `online`, `id=5` và `id=6` cho 2 Response. Packet ID tăng monotonic từ counter chung của Mongoose (sau 3 SUBACK `id=1/2/3` ban đầu là PUBLISH `id=4` của Status, rồi 2 PUBLISH `id=5/6` của Response).
-- `retain=true` trên Status pub có nghĩa broker lưu lại msg này. Subscriber **kết nối sau** vẫn nhận được — đó là lý do Terminal 1 in được dòng `online` ngay khi vừa sub xong (chưa cần `./mqtt` pub gì lúc đó).
-- Vì client cũng sub topic `Status` mà chính nó pub, broker forward msg về client (loop-back) — đây là đặc tính mặc định của Mosquitto. Dòng `CMD cmd=3 id=2` ở đầu screenshot chính là gói PUBLISH broker đẩy về (broker tự assign packet id cho downlink, không trùng counter của client).
+**Observations:**
+- `mg_mqtt_pub()` is a single call. The broker returns a PUBACK (`cmd=4`) because the client publishes with QoS 1. Three PUBACKs appear in a row: `id=4` for Status `online`, then `id=5` and `id=6` for the two Responses. Packet IDs grow monotonically from Mongoose's shared counter (after the initial three SUBACKs with `id=1/2/3` come the PUBLISH `id=4` for Status and the two PUBLISHes `id=5/6` for Response).
+- `retain=true` on the Status publish tells the broker to keep the message. Subscribers that **connect later** still receive it, which is why Terminal 1 prints the `online` line the moment its subscription is complete (before `./mqtt` has published anything in the current run).
+- Because the client also subscribes to the `Status` topic that it publishes on, the broker forwards the message back to the client (loop-back). This is Mosquitto's default behaviour. The `CMD cmd=3 id=2` line at the top of the screenshot is that loop-back PUBLISH (the broker assigns its own packet ID for downlink, unrelated to the client's counter).
 
 ---
 
-### Test 7 — TLS: kết nối client tới broker qua `mqtts://` với self-signed CA
+### Test 7 - TLS: Connecting via `mqtts://` with a Self-Signed CA
 
-**Mục đích:** Nâng cấp kết nối từ plain TCP (`mqtt://`) lên TLS (`mqtts://`) để mã hóa dữ liệu giữa client và broker. Em verify: (a) handshake TLS thành công với CA đúng → pub/sub hoạt động bình thường, (b) handshake fail khi CA sai → connection bị reject ngay từ giai đoạn TLS.
+**Purpose:** Upgrade the connection from plain TCP (`mqtt://`) to TLS (`mqtts://`) to encrypt the traffic between client and broker. Two things get verified: (a) TLS handshake succeeds with the correct CA, and pub/sub still works normally; (b) the handshake fails with the wrong CA and the connection is rejected at the TLS stage.
 
-**Code tham chiếu:**
-- [`mqtt.c` L5-L6](../application/sources/app/mqtt/mqtt_client/mqtt.c#L5-L6) — đổi URL sang `mqtts://localhost:8883` và `CA_CERT_PATH = "certs/ca.crt"` (CA tự ký của broker local, không dùng system trust store vì mbedtls không nuốt nổi bundle 220KB với 147 cert mà các build mặc định không support hết thuật toán).
-- [`mqtt.c` L52-L70](../application/sources/app/mqtt/mqtt_client/mqtt.c#L52-L70) — handler `MG_EV_CONNECT`: đọc CA bằng `mg_file_read`, gọi `mg_tls_init(c, &opts)` với `opts.ca` = nội dung CA + `opts.name` = host từ URL (dùng cho SNI và CN/SAN verification).
-- [`Makefile` L2-L3](../application/sources/app/mqtt/mqtt_client/Makefile#L2-L3) — bật TLS backend mbedtls: `-DMG_TLS=MG_TLS_MBED` + link `-lmbedtls -lmbedx509 -lmbedcrypto`.
+**Code references:**
+- [`mqtt.c` L5-L6](../application/sources/app/mqtt/mqtt_client/mqtt.c#L5-L6) - switch the URL to `mqtts://localhost:8883` and set `CA_CERT_PATH = "certs/ca.crt"` (the self-signed CA of the local broker). The system trust store is not used because mbedTLS cannot ingest a 220 KB bundle of 147 certificates when default builds do not enable every algorithm needed to parse them.
+- [`mqtt.c` L52-L70](../application/sources/app/mqtt/mqtt_client/mqtt.c#L52-L70) - `MG_EV_CONNECT` handler: read the CA file with `mg_file_read`, then call `mg_tls_init(c, &opts)` with `opts.ca` set to the CA contents and `opts.name` set to the host parsed from the URL (used for both SNI and CN/SAN verification).
+- [`Makefile` L2-L3](../application/sources/app/mqtt/mqtt_client/Makefile#L2-L3) - enable the mbedTLS backend: `-DMG_TLS=MG_TLS_MBED` plus `-lmbedtls -lmbedx509 -lmbedcrypto`.
 
-#### Phase 1 — Setup CA + cert + broker (1 lần)
+#### Phase 1 - Set Up CA, Cert, and Broker (one-time)
 
-Em để artifact TLS trong folder `certs/` cạnh `mqtt.c`:
+TLS artifacts live in the `certs/` folder next to `mqtt.c`:
 
 ```bash
 mkdir -p certs && cd certs
 
-# CA tự ký
+# Self-signed CA
 openssl genrsa -out ca.key 2048
 openssl req -new -x509 -days 3650 -key ca.key -out ca.crt \
   -subj "/C=VN/ST=HCM/O=CTP-Test/CN=ctp-test-ca"
 
-# Server cert ký bởi CA, SAN gồm cả IP và DNS
+# Server cert signed by the CA, SAN covers both IP and DNS
 openssl genrsa -out server.key 2048
 openssl req -new -key server.key -out server.csr \
   -subj "/C=VN/ST=HCM/O=CTP-Test/CN=127.0.0.1"
@@ -632,7 +632,7 @@ openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial \
 cd ..
 ```
 
-Broker config (`mosq_tls.conf`, cạnh `mqtt.c`):
+Broker config (`mosq_tls.conf`, next to `mqtt.c`):
 
 ```
 listener 8883
@@ -643,97 +643,97 @@ keyfile  certs/server.key
 persistence false
 ```
 
-> Note: Folder `certs/` đã được thêm vào `.gitignore`
+> **Note:** The `certs/` folder is already listed in `.gitignore`.
 
-#### Phase 2 — Test 7a: Pub/Sub qua TLS (positive)
+#### Phase 2 - Test 7a: Pub/Sub over TLS (positive)
 
-**Setup:** 3 terminal, đều ở thư mục `mqtt_client/`.
+**Setup:** three terminals, all inside the `mqtt_client/` directory.
 
-**Terminal A — broker TLS:**
+**Terminal A - TLS broker:**
 ```bash
 mosquitto -c mosq_tls.conf -v
 ```
 
-**Terminal B — chạy client TLS:**
+**Terminal B - run the TLS client:**
 ```bash
 ./mqtt
 ```
 
-**Terminal C — publish qua TLS bằng mosquitto_pub:**
+**Terminal C - publish over TLS with mosquitto_pub:**
 ```bash
 mosquitto_pub -h localhost -p 8883 --cafile certs/ca.crt -t Request -m "tls hello"
 mosquitto_pub -h localhost -p 8883 --cafile certs/ca.crt -t Request -m "STOP_SUB"
 mosquitto_pub -h localhost -p 8883 --cafile certs/ca.crt -t Request -m "after stop"
 ```
 
-**Đọc evidence — log Terminal B (`./mqtt`):**
+**Reading the evidence - Terminal B (`./mqtt`) log:**
 
 ```
-CONNACK rc=0                                          ← TLS handshake xong + MQTT CONNECT accepted
-CMD cmd=2 id=0                                        ← CONNACK echo qua MG_EV_MQTT_CMD
-CMD cmd=9 id=1                                        ← SUBACK 'Request'
-CMD cmd=9 id=2                                        ← SUBACK 'Signaling'
-CMD cmd=9 id=3                                        ← SUBACK 'Status'
-RECV topic='Status' payload='{"status":"online"}'     ← retained msg về (lần test cũ)
-RECV topic='Status' payload='{"status":"online"}'     ← chính client tự pub lúc CONNACK (loop-back)
-CMD cmd=4 id=4                                        ← PUBACK cho msg Status mình pub
-RECV topic='Request' payload='tls hello'              ← msg từ Terminal C
-CMD cmd=4 id=5                                        ← PUBACK cho Response mình tự pub
+CONNACK rc=0                                          <- TLS handshake done + MQTT CONNECT accepted
+CMD cmd=2 id=0                                        <- CONNACK echoed through MG_EV_MQTT_CMD
+CMD cmd=9 id=1                                        <- SUBACK 'Request'
+CMD cmd=9 id=2                                        <- SUBACK 'Signaling'
+CMD cmd=9 id=3                                        <- SUBACK 'Status'
+RECV topic='Status' payload='{"status":"online"}'     <- retained message from a previous test
+RECV topic='Status' payload='{"status":"online"}'     <- client's own publish on CONNACK (loop-back)
+CMD cmd=4 id=4                                        <- PUBACK for the Status message we published
+RECV topic='Request' payload='tls hello'              <- message from Terminal C
+CMD cmd=4 id=5                                        <- PUBACK for the Response we published
 RECV topic='Request' payload='STOP_SUB'
-CMD cmd=4 id=6                                        ← PUBACK cho Response thứ 2
-CMD cmd=11 id=7                                       ← UNSUBACK (đã unsub 'Request')
-CLOSE                                                 ← Ctrl+C → graceful disconnect
+CMD cmd=4 id=6                                        <- PUBACK for the second Response
+CMD cmd=11 id=7                                       <- UNSUBACK ('Request' unsubscribed)
+CLOSE                                                 <- Ctrl+C -> graceful disconnect
 ```
 
-Msg `"after stop"` **không** xuất hiện trong Terminal B → đúng kỳ vọng: client đã UNSUBSCRIBE topic `Request` sau khi nhận `STOP_SUB`. Logic Test 1 vẫn hoạt động nguyên vẹn qua kênh TLS.
+The `"after stop"` message does **not** appear in Terminal B, exactly as expected: the client already sent UNSUBSCRIBE for `Request` after receiving `STOP_SUB`. The Test 1 logic still works unchanged over the TLS channel.
 
-#### Phase 3 — Test 7b: Wrong CA → handshake fail (negative)
+#### Phase 3 - Test 7b: Wrong CA -> Handshake Fails (negative)
 
-Để chứng minh client thực sự verify cert chứ không phải bypass, em tạm thời sửa `CA_CERT_PATH = "/tmp/wrong-ca.pem"` (file rác không phải PEM hợp lệ), build lại và chạy:
+To prove that the client actually verifies the certificate rather than silently bypassing it, temporarily change `CA_CERT_PATH = "/tmp/wrong-ca.pem"` (a junk file that is not a valid PEM), rebuild, and run:
 
 ```
-mongoose.c:19470:mg_load_cert  cert err 0x2180        ← mbedtls không parse được CA file
+mongoose.c:19470:mg_load_cert  cert err 0x2180        <- mbedTLS cannot parse the CA file
 mongoose.c:1934:mg_error       1 4 socket error
 CLOSE
-Will auto-reconnect in 60000 ms                       ← auto-reconnect logic vẫn kích hoạt
+Will auto-reconnect in 60000 ms                       <- auto-reconnect logic still kicks in
 ```
 
-**Ý nghĩa:** mbedtls fail ngay ở bước **load CA** (error `0x2180` = `MBEDTLS_ERR_PEM_NO_HEADER_FOOTER_PRESENT`) — chưa kịp đi tới handshake. Nếu sửa thành 1 CA hợp lệ nhưng không khớp với cert broker, lỗi sẽ là `X509 - Certificate verification failed` (`-0x2700`) ở giai đoạn handshake — cũng dẫn tới `CLOSE` và reconnect. Cả hai case đều confirm code không skip TLS verification.
+**Meaning:** mbedTLS fails at the **load CA** step (error `0x2180` = `MBEDTLS_ERR_PEM_NO_HEADER_FOOTER_PRESENT`) before it even reaches the handshake. If the file is replaced with a valid CA that does not match the broker's cert, the error becomes `X509 - Certificate verification failed` (`-0x2700`) during the handshake, also ending in `CLOSE` and a reconnect attempt. Both cases confirm that the code does not skip TLS verification.
 
-**Ý nghĩa Test 7:**
-- Nâng cấp `mqtt://` → `mqtts://` về phía code chỉ cần thêm handler `MG_EV_CONNECT` gọi `mg_tls_init()` — Mongoose tự handle phần encrypt/decrypt sau đó, các API `mg_mqtt_pub/sub/unsub` không thay đổi gì.
-- `opts.name` trong `mg_tls_opts` được dùng cho **2 việc**: SNI (Server Name Indication trong TLS ClientHello) và verify hostname against CN/SAN của server cert. Phải khớp với cert broker, nếu không sẽ fail như đã nêu ở bẫy IP/DNS phía trên.
-- mbedtls strict hơn OpenSSL về thuật toán support và validation rule — pattern an toàn cho embedded là **pin đúng 1 CA** mình tin (file nhỏ, gọn) thay vì load cả system trust store.
-- Tất cả Test 1-6 ở trên đã chạy trên plain TCP `mqtt://127.0.0.1:1883`. Để chạy lại các test đó bằng TLS, đổi `MQTT_SERVER_URL` về `mqtts://localhost:8883`, broker chạy `mosq_tls.conf`, và mọi lệnh `mosquitto_pub/sub` phải thêm `-p 8883 --cafile certs/ca.crt`.
+**Test 7 takeaways:**
+- Upgrading `mqtt://` to `mqtts://` from the code's point of view means adding an `MG_EV_CONNECT` handler that calls `mg_tls_init()`. Mongoose handles the encrypt/decrypt work after that, and the `mg_mqtt_pub/sub/unsub` APIs stay unchanged.
+- `opts.name` in `mg_tls_opts` is used for **two** things: SNI (the Server Name Indication in the TLS ClientHello) and hostname verification against the server cert's CN/SAN. It has to match the broker's cert or the handshake fails.
+- mbedTLS is stricter than OpenSSL about supported algorithms and validation rules. The safe pattern for embedded targets is to **pin exactly one CA** that you trust (a small, self-contained file) rather than loading the full system trust store.
+- All of Tests 1-6 above run over plain TCP `mqtt://127.0.0.1:1883`. To re-run them over TLS, set `MQTT_SERVER_URL` to `mqtts://localhost:8883`, run the broker with `mosq_tls.conf`, and add `-p 8883 --cafile certs/ca.crt` to every `mosquitto_pub/sub` command.
 
 ---
 
 ## X. Conclusion
 
-### Bẫy `opts.qos` trong CONNECT
+### Pitfall: `opts.qos` in CONNECT
 
-`opts.qos` khi gọi `mg_mqtt_connect()` thực ra là **Will QoS** (bit 3-4 của Connect Flags byte trong gói CONNECT), không phải QoS để publish/subscribe. Nếu set `qos != 0` mà không có Will (`opts.topic` rỗng), broker sẽ reject CONNECT theo chuẩn MQTT-3.1.2-13.
+`opts.qos` at `mg_mqtt_connect()` time is actually the **Will QoS** (bits 3-4 of the Connect Flags byte in the CONNECT packet), not the QoS for publish or subscribe. Setting `qos != 0` without a Will (empty `opts.topic`) makes the broker reject CONNECT per MQTT-3.1.2-13.
 
-Đúng cách: QoS cho publish/subscribe truyền **riêng** trong `opts.qos` khi gọi `mg_mqtt_pub()` / `mg_mqtt_sub()`, không phải lúc CONNECT.
+The correct approach: pass the publish or subscribe QoS **separately** via `opts.qos` at `mg_mqtt_pub()` / `mg_mqtt_sub()` time, not at CONNECT.
 
-### Signal handling là việc của libc, không phải Mongoose
+### Signal Handling Belongs to libc, Not Mongoose
 
-Mongoose không quan tâm signal — app phải tự dùng `signal()` của `<signal.h>` để bắt SIGINT/SIGTERM. Không có handler thì kernel terminate process tức thì, gói DISCONNECT không kịp gửi → broker hiểu là crash → fire Will (giống Test 2).
+Mongoose does not touch signals; the application has to call `signal()` from `<signal.h>` itself to trap SIGINT/SIGTERM. Without a handler the kernel terminates the process immediately, the DISCONNECT packet never goes out, and the broker treats the exit as a crash and fires the Will (as in Test 2).
 
-Pattern chuẩn: set cờ trong handler → main loop check cờ → thoát loop → `mg_mqtt_disconnect()` → poll thêm vài lần để flush → `mg_mgr_free()`.
+The canonical pattern: set a flag inside the handler, check the flag in the main loop, exit the loop, call `mg_mqtt_disconnect()`, poll a few more times to flush, then `mg_mgr_free()`.
 
-### Sub nhiều topic phải gọi `mg_mqtt_sub()` nhiều lần
+### Subscribing to Multiple Topics Requires Multiple `mg_mqtt_sub()` Calls
 
-API `mg_mqtt_sub()` mỗi lần gọi gửi 1 gói SUBSCRIBE chứa **1 topic duy nhất**. Muốn sub 3 topic phải gọi 3 lần riêng biệt, broker trả về 3 SUBACK riêng biệt với 3 packet ID khác nhau (như Hình 1 và Hình 4).
+Every `mg_mqtt_sub()` call sends a single SUBSCRIBE packet carrying **exactly one topic**. Subscribing to three topics means three separate calls, and the broker returns three separate SUBACKs with three different packet IDs (visible in Figures 1 and 4).
 
-### Mongoose không cover sẵn auto-reconnect
+### Mongoose Does Not Ship an Auto-Reconnect
 
-Cần code tay theo pattern:
-- Trong `MG_EV_CLOSE`: `s_reconnect_at = mg_millis() + RECONNECT_MS`.
-- Main loop check `mg_millis() >= s_reconnect_at` → gọi lại `mg_mqtt_connect()`.
-- `mgr` + `opts` phải để global static để truy cập được từ main loop.
+It has to be written by hand:
+- Inside `MG_EV_CLOSE`: `s_reconnect_at = mg_millis() + RECONNECT_MS`.
+- In the main loop, check `mg_millis() >= s_reconnect_at` and call `mg_mqtt_connect()` again.
+- `mgr` and `opts` must be `static` globals so the main loop can reach them.
 
-Bonus: vì sub topic nằm trong handler `MG_EV_MQTT_OPEN` (fire mỗi lần CONNACK), nên sau reconnect 3 topic tự sub lại — không cần code thêm.
+Bonus: because the subscribe calls live inside `MG_EV_MQTT_OPEN` (which fires on every CONNACK), the three topics are automatically re-subscribed after each reconnect, without any extra code.
 
 ---
 
