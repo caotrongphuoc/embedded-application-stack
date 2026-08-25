@@ -1,175 +1,210 @@
-# Báo cáo study MQTT với thư viện Mongoose
+<h1 align="center">MQTT Study Report with the Mongoose Library</h1>
 
-## Mục đích
+Welcome to the MQTT study report of this repository. The goal is to work through the Mongoose MQTT API on a Linux host, rewrite it into a single self-contained C file, connect it to a local Mosquitto broker, and cover every core MQTT feature end-to-end before porting to a real board.
 
-Học cách sử dụng các API MQTT của thư viện Mongoose rồi viết lại thành 1 file C, kết nối tới broker (hiện tại em dùng broker Mosquitto local do em chưa test trên board) và thực hiện các function cơ bản: `sub`, `pub`, `unsub`, `disconnect` đàng hoàng, Last Will (disconnect đột ngột / crash), auto-reconnect và authentication user/pass.
+---
 
-Toàn bộ code nằm trong file `mqtt.c`, thư viện Mongoose nằm trong folder `lib`.
+## Table of Contents
 
-## Cấu trúc folder
+- [I. Purpose](#i-purpose)
+- [II. Folder Structure](#ii-folder-structure)
+- [III. Mongoose API Reference](#iii-mongoose-api-reference)
+- [IV. Callback Events](#iv-callback-events)
+- [V. MQTT Command Codes in Logs](#v-mqtt-command-codes-in-logs)
+- [VI. In-Code Configuration](#vi-in-code-configuration)
+- [VII. Program Flow](#vii-program-flow)
+- [VIII. Build and Run](#viii-build-and-run)
+- [IX. Test Cases](#ix-test-cases)
+  - [Test 1 - Subscribe, Receive, Unsubscribe on Command](#test-1---subscribe-receive-unsubscribe-on-command)
+  - [Test 2 - Last Will Fires on Abrupt Disconnect](#test-2---last-will-fires-on-abrupt-disconnect)
+  - [Test 3 - Graceful Disconnect: Will Does Not Fire](#test-3---graceful-disconnect-will-does-not-fire)
+  - [Test 4 - Auto-Reconnect After Broker Restart](#test-4---auto-reconnect-after-broker-restart)
+  - [Test 5 - Username / Password Authentication](#test-5---username--password-authentication)
+  - [Test 6 - Publish: Client Sends Messages to the Broker](#test-6---publish-client-sends-messages-to-the-broker)
+  - [Test 7 - TLS: Connecting via `mqtts://` with a Self-Signed CA](#test-7---tls-connecting-via-mqtts-with-a-self-signed-ca)
+- [X. Conclusion](#x-conclusion)
+- [XI. References](#xi-references)
 
-Tính từ root repo (`embedded-application-stack/`), folder MQTT nằm ở:
+---
+
+## I. Purpose
+
+Learn how to use the MQTT API of the Mongoose library, rewrite it into a single C file, connect to a broker (currently a local Mosquitto broker, since the code has not been ported to a board yet), and exercise the essential features: `sub`, `pub`, `unsub`, graceful `disconnect`, Last Will (abrupt disconnect / crash), auto-reconnect, and username/password authentication.
+
+All source code lives in `mqtt.c`. The Mongoose library sits in the `lib` folder.
+
+---
+
+## II. Folder Structure
+
+Relative to the repository root (`embedded-application-stack/`), the MQTT module lives at:
 
 ```
 application/sources/app/mqtt/mqtt_client/
 ├── lib/
-│   ├── mongoose.c          # thư viện gốc
-│   └── mongoose.h          # thư viện gốc
-├── certs/                  # CA + server cert tự ký — dùng cho Test 7
-├── mqtt.c                  # code chính
-├── Makefile                # build với gcc, link mongoose.c + mbedtls
-├── mosq_auth.conf          # config broker mosquitto bật auth — dùng cho Test 5
-└── mosq_tls.conf           # config broker mosquitto bật TLS — dùng cho Test 7
+│   ├── mongoose.c          # upstream library
+│   └── mongoose.h          # upstream library
+├── certs/                  # self-signed CA + server cert (used in Test 7)
+├── mqtt.c                  # main source
+├── Makefile                # gcc build, links mongoose.c and mbedTLS
+├── mosq_auth.conf          # Mosquitto config with auth enabled (used in Test 5)
+└── mosq_tls.conf           # Mosquitto config with TLS enabled (used in Test 7)
 ```
 
-Báo cáo này (file `mqtt-reporting.md`) nằm tại `docs/` ở root repo.
+This report (`mqtt-reporting.md`) lives at `docs/` under the repository root.
 
-## Bảng các API Mongoose dùng trong code
+---
 
-Cột "Tham khảo source" link thẳng tới dòng khai báo trong `mongoose.h` và dòng implement trong `mongoose.c` để tra cứu nhanh:
+## III. Mongoose API Reference
 
-| API | Vai trò | Tham khảo source |
-|---|---|---|
-| `mg_mgr_init(mgr)` | Khởi tạo event manager (epoll fd, ID counter) | [h:1805](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L1805) · [c:7262](../application/sources/app/mqtt/mqtt_client/lib/mongoose.c#L7262) |
-| `mg_mgr_poll(mgr, ms)` | 1 vòng event loop, chờ tối đa `ms` milli giây | [h:1804](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L1804) · [c:13777](../application/sources/app/mqtt/mqtt_client/lib/mongoose.c#L13777) |
-| `mg_mgr_free(mgr)` | Đóng mọi connection còn lại + giải phóng tài nguyên | [h:1806](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L1806) · [c:7242](../application/sources/app/mqtt/mqtt_client/lib/mongoose.c#L7242) |
-| `mg_mqtt_connect(mgr, url, opts, fn, fn_data)` | Mở TCP + gửi gói CONNECT | [h:3088](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L3088) · [c:6961](../application/sources/app/mqtt/mqtt_client/lib/mongoose.c#L6961) |
-| `mg_mqtt_pub(c, opts)` | Gửi gói PUBLISH, trả về `uint16_t` packet ID | [h:3094](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L3094) · [c:6719](../application/sources/app/mqtt/mqtt_client/lib/mongoose.c#L6719) |
-| `mg_mqtt_sub(c, opts)` | Gửi gói SUBSCRIBE (1 topic mỗi lần gọi) | [h:3095](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L3095) · [c:6779](../application/sources/app/mqtt/mqtt_client/lib/mongoose.c#L6779) |
-| `mg_mqtt_unsub(c, opts)` | Gửi gói UNSUBSCRIBE | [h:3096](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L3096) · [c:6783](../application/sources/app/mqtt/mqtt_client/lib/mongoose.c#L6783) |
-| `mg_mqtt_disconnect(c, opts)` | Gửi gói DISCONNECT (2 byte: `0xE0 0x00`) | [h:3102](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L3102) · [c:6944](../application/sources/app/mqtt/mqtt_client/lib/mongoose.c#L6944) |
-| `mg_str("…")` | Tạo `struct mg_str` gồm `*buf` (chuỗi dữ liệu) và `len` (kích thước). Là macro gọi `mg_str_s()` | [h:1200](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L1200) · [c:13938](../application/sources/app/mqtt/mqtt_client/lib/mongoose.c#L13938) |
-| `mg_strcmp(s1, s2)` | So sánh 2 chuỗi `mg_str` | [h:1205](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L1205) · [c:13977](../application/sources/app/mqtt/mqtt_client/lib/mongoose.c#L13977) |
-| `mg_millis()` | Lấy thời gian hiện tại (ms từ Unix epoch) | [h:2943](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L2943) · [c:24783](../application/sources/app/mqtt/mqtt_client/lib/mongoose.c#L24783) |
-| `mg_log_set(level)` | Set log level (`MG_LL_ERROR/INFO/DEBUG/VERBOSE`). Là macro gán `mg_log_level` | [h:1287](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L1287) |
-| `MG_INFO((...))` | Macro log mức INFO | [h:1333](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L1333) |
+The "Source Reference" column links directly to the declaration in `mongoose.h` and the implementation in `mongoose.c` for quick lookup:
 
-## Bảng các event xử lý trong callback `fn`
+| API | Role | Source Reference |
+| --- | --- | --- |
+| `mg_mgr_init(mgr)` | Initialize the event manager (epoll fd, ID counter) | [h:1805](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L1805) - [c:7262](../application/sources/app/mqtt/mqtt_client/lib/mongoose.c#L7262) |
+| `mg_mgr_poll(mgr, ms)` | Run one event-loop iteration, waiting up to `ms` milliseconds | [h:1804](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L1804) - [c:13777](../application/sources/app/mqtt/mqtt_client/lib/mongoose.c#L13777) |
+| `mg_mgr_free(mgr)` | Close every remaining connection and free resources | [h:1806](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L1806) - [c:7242](../application/sources/app/mqtt/mqtt_client/lib/mongoose.c#L7242) |
+| `mg_mqtt_connect(mgr, url, opts, fn, fn_data)` | Open TCP and send the CONNECT packet | [h:3088](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L3088) - [c:6961](../application/sources/app/mqtt/mqtt_client/lib/mongoose.c#L6961) |
+| `mg_mqtt_pub(c, opts)` | Send a PUBLISH packet; returns the `uint16_t` packet ID | [h:3094](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L3094) - [c:6719](../application/sources/app/mqtt/mqtt_client/lib/mongoose.c#L6719) |
+| `mg_mqtt_sub(c, opts)` | Send a SUBSCRIBE packet (one topic per call) | [h:3095](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L3095) - [c:6779](../application/sources/app/mqtt/mqtt_client/lib/mongoose.c#L6779) |
+| `mg_mqtt_unsub(c, opts)` | Send an UNSUBSCRIBE packet | [h:3096](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L3096) - [c:6783](../application/sources/app/mqtt/mqtt_client/lib/mongoose.c#L6783) |
+| `mg_mqtt_disconnect(c, opts)` | Send a DISCONNECT packet (2 bytes: `0xE0 0x00`) | [h:3102](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L3102) - [c:6944](../application/sources/app/mqtt/mqtt_client/lib/mongoose.c#L6944) |
+| `mg_str("...")` | Build a `struct mg_str` with `*buf` (data pointer) and `len` (size). Macro that expands to `mg_str_s()` | [h:1200](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L1200) - [c:13938](../application/sources/app/mqtt/mqtt_client/lib/mongoose.c#L13938) |
+| `mg_strcmp(s1, s2)` | Compare two `mg_str` values | [h:1205](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L1205) - [c:13977](../application/sources/app/mqtt/mqtt_client/lib/mongoose.c#L13977) |
+| `mg_millis()` | Current time in milliseconds since Unix epoch | [h:2943](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L2943) - [c:24783](../application/sources/app/mqtt/mqtt_client/lib/mongoose.c#L24783) |
+| `mg_log_set(level)` | Set log level (`MG_LL_ERROR/INFO/DEBUG/VERBOSE`). Macro that assigns `mg_log_level` | [h:1287](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L1287) |
+| `MG_INFO((...))` | Macro for INFO-level logging | [h:1333](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L1333) |
+
+---
+
+## IV. Callback Events
 
 ```c
 static void fn(struct mg_connection *c, int ev, void *ev_data);
 ```
 
-| Event | Khi nào fire | `ev_data` | Tham khảo |
-|---|---|---|---|
-| `MG_EV_MQTT_OPEN` | Nhận CONNACK | `int *` = return code (0 = OK) | [h:1709](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L1709) |
-| `MG_EV_MQTT_CMD` | Nhận bất kỳ gói MQTT nào | `struct mg_mqtt_message *` | [h:1707](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L1707) |
-| `MG_EV_MQTT_MSG` | Nhận PUBLISH (msg tới subscription) | `struct mg_mqtt_message *` | [h:1708](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L1708) |
-| `MG_EV_CLOSE` | Connection đóng | `NULL` | [h:1701](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L1701) |
-
-## Bảng mã `cmd` xuất hiện trong log
-
-Khi nhận `MG_EV_MQTT_CMD`, field `m->cmd` cho biết loại gói:
-
-| `cmd` | Tên gói MQTT | Ý nghĩa | Tham khảo |
-|---|---|---|---|
-| 2  | CONNACK   | Broker xác nhận connect | [h:2996](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L2996) |
-| 3  | PUBLISH   | Có msg tới topic mình sub | [h:2997](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L2997) |
-| 4  | PUBACK    | Broker ack msg QoS≥1 mình vừa pub | [h:2998](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L2998) |
-| 9  | SUBACK    | Broker ack gói SUBSCRIBE | [h:3003](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L3003) |
-| 11 | UNSUBACK  | Broker ack gói UNSUBSCRIBE | [h:3005](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L3005) |
-| 13 | PINGRESP  | Broker trả lời keep-alive PING | [h:3007](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L3007) |
+| Event | When It Fires | `ev_data` | Reference |
+| --- | --- | --- | --- |
+| `MG_EV_MQTT_OPEN` | CONNACK received | `int *` = return code (0 = OK) | [h:1709](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L1709) |
+| `MG_EV_MQTT_CMD` | Any MQTT packet received | `struct mg_mqtt_message *` | [h:1707](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L1707) |
+| `MG_EV_MQTT_MSG` | PUBLISH received (message to a subscribed topic) | `struct mg_mqtt_message *` | [h:1708](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L1708) |
+| `MG_EV_CLOSE` | Connection closed | `NULL` | [h:1701](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L1701) |
 
 ---
 
-## Cấu hình trong code
+## V. MQTT Command Codes in Logs
 
-Phần này em hard-code các tham số trực tiếp để thuận tiện cho việc demo:
+When `MG_EV_MQTT_CMD` fires, the `m->cmd` field identifies the packet type:
 
-| Tham số | Giá trị | Vị trí |
-|---|---|---|
-| Broker URL | `mqtt://127.0.0.1:1883` | Đối số thứ 2 của `mg_mqtt_connect` |
+| `cmd` | MQTT Packet Name | Meaning | Reference |
+| --- | --- | --- | --- |
+| 2 | CONNACK | Broker acknowledges the connect | [h:2996](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L2996) |
+| 3 | PUBLISH | Incoming message on a subscribed topic | [h:2997](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L2997) |
+| 4 | PUBACK | Broker acknowledges a QoS >= 1 message we just published | [h:2998](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L2998) |
+| 9 | SUBACK | Broker acknowledges a SUBSCRIBE packet | [h:3003](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L3003) |
+| 11 | UNSUBACK | Broker acknowledges an UNSUBSCRIBE packet | [h:3005](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L3005) |
+| 13 | PINGRESP | Broker replies to a keep-alive PING | [h:3007](../application/sources/app/mqtt/mqtt_client/lib/mongoose.h#L3007) |
+
+---
+
+## VI. In-Code Configuration
+
+These parameters are hard-coded directly in the source for convenience during the study phase:
+
+| Parameter | Value | Location |
+| --- | --- | --- |
+| Broker URL | `mqtt://127.0.0.1:1883` | 2nd argument of `mg_mqtt_connect` |
 | Client ID | `client` | `opts.client_id` |
 | Username | `ctp` | `opts.user` |
 | Password | `aloalo` | `opts.pass` |
-| Keep-alive | 60 giây | `opts.keepalive` |
-| MQTT version | 4 (= MQTT 3.1.1) | `opts.version` |
+| Keep-alive | 60 seconds | `opts.keepalive` |
+| MQTT version | 4 (MQTT 3.1.1) | `opts.version` |
 | Clean session | `true` | `opts.clean` |
 | Will topic | `demo/mqtt/will` | `opts.topic` |
 | Will message | `client's disconnected` | `opts.message` |
 | Will QoS | 1 | `opts.qos` |
-| Topic subscribe | `Request`, `Signaling`, `Status` | Trong handler `MG_EV_MQTT_OPEN` |
-| Reconnect delay | 60000 ms (1 phút) | Macro `RECONNECT_MS` |
+| Subscribed topics | `Request`, `Signaling`, `Status` | Inside the `MG_EV_MQTT_OPEN` handler |
+| Reconnect delay | 60000 ms (1 minute) | Macro `RECONNECT_MS` |
 
 ---
 
-## Luồng hoạt động
+## VII. Program Flow
 
 ```
 START
-  │
-  ├─► mg_mgr_init                   tạo epoll fd
-  │
-  ├─► signal(SIGINT/SIGTERM, …)     đăng ký handler bắt Ctrl+C (em dùng cho mục đích test case disconnect đàng hoàng)
-  │
-  ├─► mg_mqtt_connect               mở TCP + gửi CONNECT (kèm Will + user/pass)
-  │
-  ▼
+  |
+  |-> mg_mgr_init                   create epoll fd
+  |
+  |-> signal(SIGINT/SIGTERM, ...)   register handler for Ctrl+C (used to test graceful disconnect)
+  |
+  |-> mg_mqtt_connect               open TCP and send CONNECT (with Will + user/pass)
+  |
+  v
   EVENT LOOP: while (!s_quit) mg_mgr_poll(1000)
-  │
-  ├─[CONNACK rc=0]──► MG_EV_MQTT_OPEN
-  │                     └─► mg_mqtt_sub × 3 (3 topic Request/Signaling/Status,
-  │                         tham khảo theo source camera đang dùng sẵn 3 topic này)
-  │
-  ├─[mọi gói tới]──► MG_EV_MQTT_CMD
-  │                    └─► log cmd + id
-  │
-  ├─[PUBLISH tới]──► MG_EV_MQTT_MSG
-  │                    └─► log topic + payload
-  │                    └─► nếu payload == "STOP_SUB" → mg_mqtt_unsub(topic đó)
-  │
-  ├─[Connection đóng]──► MG_EV_CLOSE
-  │                       └─► s_reconnect_at = mg_millis() + 60000
-  │                       (lần poll sau, main loop check timer → gọi mg_mqtt_connect lại)
-  │
-  └─[Ctrl+C]──► s_quit = 1 → thoát loop
-                 │
-                 ├─► mg_mqtt_disconnect (gửi DISCONNECT đàng hoàng)
-                 ├─► mg_mgr_poll × 5 (flush bytes ra mạng)
-                 └─► mg_mgr_free
-                 EXIT
+  |
+  |-[CONNACK rc=0]---> MG_EV_MQTT_OPEN
+  |                       |-> mg_mqtt_sub x 3 (Request / Signaling / Status,
+  |                           mirroring the 3 topics used by the reference camera source)
+  |
+  |-[any packet]-----> MG_EV_MQTT_CMD
+  |                       |-> log cmd + id
+  |
+  |-[incoming PUBLISH]-> MG_EV_MQTT_MSG
+  |                        |-> log topic + payload
+  |                        |-> if payload == "STOP_SUB" -> mg_mqtt_unsub(that topic)
+  |
+  |-[connection closed]-> MG_EV_CLOSE
+  |                        |-> s_reconnect_at = mg_millis() + 60000
+  |                        (next poll iteration, main loop checks the timer -> calls mg_mqtt_connect again)
+  |
+  |-[Ctrl+C]---------> s_quit = 1 -> exit loop
+                          |
+                          |-> mg_mqtt_disconnect (send DISCONNECT cleanly)
+                          |-> mg_mgr_poll x 5 (flush bytes onto the wire)
+                          |-> mg_mgr_free
+                          EXIT
 ```
 
 ---
 
-## Build & Run
+## VIII. Build and Run
 
-Yêu cầu: `gcc`, `mosquitto` broker (chạy port 1883 với `allow_anonymous true`).
+Requirements: `gcc`, `mbedTLS` development headers (`libmbedtls-dev`), and a `mosquitto` broker (listening on port 1883 with `allow_anonymous true`).
 
 ```bash
-make            # build → tạo file ./mqtt
-./mqtt          # chạy
-make clean      # xóa binary
+make            # build -> produces ./mqtt
+./mqtt          # run
+make clean      # remove the binary
 ```
 
-Verify broker:
+Verify the broker:
 ```bash
-systemctl is-active mosquitto       # → "active"
+systemctl is-active mosquitto       # -> "active"
 mosquitto_pub -h 127.0.0.1 -t test -m hi
 ```
 
 ---
 
-## Các case test
+## IX. Test Cases
 
-> Toàn bộ case test em chạy trên Ubuntu host với Mosquitto local, chưa port lên board.
+> **Note:** All test cases run on an Ubuntu host against a local Mosquitto broker. Nothing has been ported to a board yet.
 
-### Test 1 — Subscribe + nhận message từ ngoài + unsubscribe theo lệnh
+### Test 1 - Subscribe, Receive, Unsubscribe on Command
 
-**Mục đích:** Verify đúng mô hình pub/sub thực tế giữa 2 client riêng biệt, và demo cơ chế client tự unsub khi nhận lệnh đặc biệt từ broker (`STOP_SUB`).
+**Purpose:** Verify the standard pub/sub flow between two independent clients, and demonstrate the client unsubscribing itself when the broker delivers a special command payload (`STOP_SUB`).
 
-**Code tham chiếu:**
-- [`mqtt.c` L23-L41](../application/sources/app/mqtt/mqtt_client/mqtt.c#L23-L41) — handler `MG_EV_MQTT_OPEN`: sub 3 topic `Request` / `Signaling` / `Status` (mỗi topic 1 lần gọi `mg_mqtt_sub`).
-- [`mqtt.c` L76-L103](../application/sources/app/mqtt/mqtt_client/mqtt.c#L76-L103) — handler `MG_EV_MQTT_MSG`: log payload và gọi `mg_mqtt_unsub` khi payload trùng `"STOP_SUB"`.
+**Code references:**
+- [`mqtt.c` L23-L41](../application/sources/app/mqtt/mqtt_client/mqtt.c#L23-L41) - `MG_EV_MQTT_OPEN` handler: subscribe to the three topics `Request`, `Signaling`, `Status` (one `mg_mqtt_sub` call each).
+- [`mqtt.c` L76-L103](../application/sources/app/mqtt/mqtt_client/mqtt.c#L76-L103) - `MG_EV_MQTT_MSG` handler: log the payload and call `mg_mqtt_unsub` when the payload equals `"STOP_SUB"`.
 
-**Setup:** 2 terminal.
+**Setup:** two terminals.
 
-**Terminal A — subscriber (client của em):**
+**Terminal A - subscriber (our client):**
 ```bash
 ./mqtt
 ```
 
-**Terminal B — publisher (mosquitto_pub gửi msg):**
+**Terminal B - publisher (`mosquitto_pub` sending messages):**
 ```bash
 mosquitto_pub -h 127.0.0.1 -t Request -m "send packet 1"
 mosquitto_pub -h 127.0.0.1 -t Request -m "send packet 2"
@@ -182,58 +217,58 @@ mosquitto_pub -h 127.0.0.1 -t Request -m "check after stop"
     <td align="center"><img src="../resources/images/mqtt/mqtt_subcribe_publish_unsubcribe.png" alt="mqtt_subscribe_publish_unsubscribe" width="1700"/></td>
   </tr>
 </table>
-<p align="center"><strong><em>Hình 1:</em></strong> Subscribe, publish và unsubscribe</p>
+<p align="center"><strong><em>Figure 1:</em></strong> Subscribe, publish, and unsubscribe</p>
 
-**Đọc evidence (Hình 1):**
+**Reading the evidence (Figure 1):**
 
-Terminal A (trái) — output `./mqtt`:
+Terminal A (left) - `./mqtt` output:
 ```
 CONNACK rc=0
-CMD cmd=2 id=0                                  ← CONNACK echo qua MG_EV_MQTT_CMD
-CMD cmd=9 id=1                                  ← SUBACK cho 'Request'
-CMD cmd=9 id=2                                  ← SUBACK cho 'Signaling'
-CMD cmd=9 id=3                                  ← SUBACK cho 'Status'
+CMD cmd=2 id=0                                  <- CONNACK echoed through MG_EV_MQTT_CMD
+CMD cmd=9 id=1                                  <- SUBACK for 'Request'
+CMD cmd=9 id=2                                  <- SUBACK for 'Signaling'
+CMD cmd=9 id=3                                  <- SUBACK for 'Status'
 RECV topic='Request' payload='send packet 1'
-CMD cmd=3 id=0                                  ← PUBLISH tới (QoS 0, id=0)
+CMD cmd=3 id=0                                  <- incoming PUBLISH (QoS 0, id=0)
 RECV topic='Request' payload='send packet 2'
 CMD cmd=3 id=0
 RECV topic='Request' payload='STOP_SUB'
 CMD cmd=3 id=0
-CMD cmd=11 id=4                                 ← UNSUBACK (đã unsub 'Request')
+CMD cmd=11 id=4                                 <- UNSUBACK ('Request' unsubscribed)
 ```
 
-Sau khi nhận `STOP_SUB`, msg cuối cùng (`check after stop`) **không** xuất hiện trong Terminal A — đúng kỳ vọng, vì client đã gửi UNSUBSCRIBE topic `Request` ngay khi xử lý `STOP_SUB`.
+The final message (`check after stop`) does **not** appear in Terminal A, exactly as expected: the client sent UNSUBSCRIBE for `Request` as soon as it processed `STOP_SUB`.
 
-**Quan sát:**
-- Mỗi gói MQTT tới đều fire **cả 2** event: `MG_EV_MQTT_CMD` (cho mọi loại gói, dòng `CMD cmd=...`) **và** `MG_EV_MQTT_MSG` (riêng cho PUBLISH, dòng `RECV topic=... payload=...`). Đó là lý do với mỗi PUBLISH ta thấy 2 dòng log liên tiếp.
-- `id=0` ở các gói PUBLISH là do `mosquitto_pub` mặc định dùng QoS 0 (gói không có packet identifier).
-- Code phải gọi `mg_mqtt_sub()` **3 lần riêng biệt** cho 3 topic, mỗi gói SUBSCRIBE của Mongoose chỉ mang 1 topic.
-- `mg_mqtt_unsub()` chỉ cần 1 lệnh, broker trả về UNSUBACK ngay (id=4 ngay sau 3 SUBACK đầu).
+**Observations:**
+- Every incoming MQTT packet fires **both** events: `MG_EV_MQTT_CMD` (for any packet, produces `CMD cmd=...` lines) **and** `MG_EV_MQTT_MSG` (for PUBLISH only, produces `RECV topic=... payload=...` lines). That is why each PUBLISH produces two consecutive log lines.
+- `id=0` on the PUBLISH packets happens because `mosquitto_pub` defaults to QoS 0 (no packet identifier).
+- Subscribing to three topics requires **three separate** `mg_mqtt_sub()` calls: each Mongoose SUBSCRIBE packet carries exactly one topic.
+- `mg_mqtt_unsub()` needs only one call; the broker returns UNSUBACK immediately (id=4, right after the initial three SUBACKs).
 
 ---
 
-### Test 2 — Last Will fire khi client disconnect đột ngột (crash)
+### Test 2 - Last Will Fires on Abrupt Disconnect
 
-**Mục đích:** Verify cơ chế Last Will and Testament (LWT) — khi client chết bất ngờ (mất điện, crash, mất mạng), broker tự pub "di chúc" lên topic Will để các client khác biết. Em dùng `pkill -9 mqtt` để giả lập crash đột ngột (SIGKILL không cho process chạy signal handler).
+**Purpose:** Verify the Last Will and Testament (LWT) mechanism: when the client dies unexpectedly (power loss, crash, network drop), the broker automatically publishes the "will" message on the Will topic so other clients can react. `pkill -9 mqtt` simulates a sudden crash (SIGKILL cannot be caught, so the signal handler never runs).
 
-**Code tham chiếu:**
-- [`mqtt.c` L130-L132](../application/sources/app/mqtt/mqtt_client/mqtt.c#L130-L132) — set Will fields trong `s_opts`: `topic` = `demo/mqtt/will`, `message` = `client's disconnected`, `qos` = 1.
-- [`mqtt.c` L138](../application/sources/app/mqtt/mqtt_client/mqtt.c#L138) — gọi `mg_mqtt_connect` với `&s_opts` để Mongoose encode Will vào gói CONNECT.
+**Code references:**
+- [`mqtt.c` L130-L132](../application/sources/app/mqtt/mqtt_client/mqtt.c#L130-L132) - Will fields in `s_opts`: `topic` = `demo/mqtt/will`, `message` = `client's disconnected`, `qos` = 1.
+- [`mqtt.c` L138](../application/sources/app/mqtt/mqtt_client/mqtt.c#L138) - `mg_mqtt_connect` call with `&s_opts` so Mongoose encodes the Will into the CONNECT packet.
 
-**Setup:** 3 terminal.
+**Setup:** three terminals.
 
-**Terminal A — watcher Will:**
+**Terminal A - Will watcher:**
 ```bash
 mosquitto_sub -h 127.0.0.1 -t 'demo/mqtt/#' -v
 ```
-(Wildcard `#` để thấy mọi topic dưới `demo/mqtt/`.)
+(Wildcard `#` shows every topic under `demo/mqtt/`.)
 
-**Terminal B — chạy client:**
+**Terminal B - run the client:**
 ```bash
 ./mqtt
 ```
 
-**Terminal C — kill -9 (giả lập crash):**
+**Terminal C - kill -9 (simulated crash):**
 ```bash
 pkill -9 mqtt
 ```
@@ -243,44 +278,44 @@ pkill -9 mqtt
     <td align="center"><img src="../resources/images/mqtt/mqtt_last_will.png" alt="mqtt_last_will" width="1700"/></td>
   </tr>
 </table>
-<p align="center"><strong><em>Hình 2:</em></strong> Last Will and Testament (LWT)</p>
+<p align="center"><strong><em>Figure 2:</em></strong> Last Will and Testament (LWT)</p>
 
-**Đọc evidence (Hình 2):**
+**Reading the evidence (Figure 2):**
 
-- Terminal A (trái): in ra đúng 1 dòng `demo/mqtt/will client's disconnected` ngay sau khi process bị kill.
-- Terminal B (giữa): `CONNACK rc=0` + 3 dòng SUBACK (`CMD cmd=9 id=1/2/3`), rồi shell in `Killed` — chứng tỏ process bị SIGKILL từ bên ngoài, **không có** log `CLOSE` (vì SIGKILL không thể chặn, signal handler không chạy, app không kịp in gì thêm).
-- Terminal C (phải): chỉ là lệnh `pkill -9 mqtt`.
+- Terminal A (left): prints exactly one line, `demo/mqtt/will client's disconnected`, right after the process is killed.
+- Terminal B (middle): shows `CONNACK rc=0` and three SUBACK lines (`CMD cmd=9 id=1/2/3`), then the shell prints `Killed`. The process was terminated by SIGKILL from outside; there is **no** `CLOSE` line because SIGKILL cannot be caught, the signal handler never ran, and the app had no chance to log anything further.
+- Terminal C (right): just the `pkill -9 mqtt` command.
 
-**Logic broker:** broker thấy TCP socket bị nửa-đóng (FIN/RST) mà chưa nhận gói DISCONNECT đúng nghĩa → mặc định coi như client crash → fire Will message lên topic đã đăng ký trong CONNECT.
+**Broker logic:** the broker sees the TCP socket half-close (FIN/RST) without having received a proper DISCONNECT packet, treats the client as crashed, and fires the Will message on the topic that was registered in CONNECT.
 
-**Ý nghĩa:**
-- `opts.topic` + `opts.message` trong CONNECT options chính là **Will topic** + **Will payload** (không phải data topic để pub thường).
-- `opts.qos` trong `mg_mqtt_opts` lúc gọi `mg_mqtt_connect()` thực ra là **Will QoS** (bit 3-4 của Connect Flags byte). 
-- Để trigger được Will, **bắt buộc dùng `kill -9`** (SIGKILL). Các cách thoát khác (Ctrl+C → SIGINT, `kill` → SIGTERM, `pkill` không có `-9`) sẽ kích hoạt signal handler → app gửi DISCONNECT trước → broker hiểu là thoát đàng hoàng → Will không fire (xem Test 3).
+**Meaning:**
+- `opts.topic` + `opts.message` in the CONNECT options are the **Will topic** and **Will payload**, not a regular data topic to publish on.
+- `opts.qos` in `mg_mqtt_opts` at `mg_mqtt_connect()` time is actually the **Will QoS** (bits 3 and 4 of the Connect Flags byte).
+- To trigger the Will, `kill -9` (SIGKILL) is **required**. Other exit paths (Ctrl+C -> SIGINT, `kill` -> SIGTERM, `pkill` without `-9`) reach the signal handler, the app sends DISCONNECT first, and the broker treats the exit as intentional, so the Will does not fire (see Test 3).
 
 ---
 
-### Test 3 — Disconnect đàng hoàng: Will KHÔNG fire khi thoát có chủ ý
+### Test 3 - Graceful Disconnect: Will Does Not Fire
 
-**Mục đích:** Verify rằng khi client gửi gói DISCONNECT đúng spec MQTT, broker sẽ **không** fire Will — đây là cách app sống đàng hoàng nên ứng xử.
+**Purpose:** Verify that when the client sends a proper MQTT DISCONNECT packet, the broker does **not** fire the Will. This is how a well-behaved application should shut down.
 
-**Code tham chiếu:**
-- [`mqtt.c` L9-L14](../application/sources/app/mqtt/mqtt_client/mqtt.c#L9-L14) — định nghĩa cờ `s_quit` và signal handler `on_sigint` set cờ.
-- [`mqtt.c` L134-L135](../application/sources/app/mqtt/mqtt_client/mqtt.c#L134-L135) — đăng ký handler cho `SIGINT` và `SIGTERM`.
-- [`mqtt.c` L159-L167](../application/sources/app/mqtt/mqtt_client/mqtt.c#L159-L167) — sau khi main loop thoát: gọi `mg_mqtt_disconnect` rồi poll 5 lần × 100ms để flush bytes ra socket trước khi `mg_mgr_free`.
+**Code references:**
+- [`mqtt.c` L9-L14](../application/sources/app/mqtt/mqtt_client/mqtt.c#L9-L14) - `s_quit` flag and the `on_sigint` signal handler that sets it.
+- [`mqtt.c` L134-L135](../application/sources/app/mqtt/mqtt_client/mqtt.c#L134-L135) - handler registration for `SIGINT` and `SIGTERM`.
+- [`mqtt.c` L159-L167](../application/sources/app/mqtt/mqtt_client/mqtt.c#L159-L167) - after the main loop exits: call `mg_mqtt_disconnect`, then poll 5 times x 100ms to flush bytes to the socket before `mg_mgr_free`.
 
-**Setup:** 2 terminal.
+**Setup:** two terminals.
 
-**Terminal A — watcher Will:**
+**Terminal A - Will watcher:**
 ```bash
 mosquitto_sub -h 127.0.0.1 -t 'demo/mqtt/#' -v
 ```
 
-**Terminal B — chạy client rồi bấm Ctrl+C:**
+**Terminal B - run the client and press Ctrl+C:**
 ```bash
 ./mqtt
-# (đợi vài giây cho thấy CONNACK + 3 SUBACK)
-# Bấm Ctrl+C
+# (wait a few seconds for CONNACK + 3 SUBACKs)
+# Press Ctrl+C
 ```
 
 <table align="center">
@@ -288,37 +323,37 @@ mosquitto_sub -h 127.0.0.1 -t 'demo/mqtt/#' -v
     <td align="center"><img src="../resources/images/mqtt/mqtt_gratefully_disconnecting.png" alt="mqtt_gracefully_disconnecting" width="1700"/></td>
   </tr>
 </table>
-<p align="center"><strong><em>Hình 3:</em></strong> Gracefully disconnecting</p>
+<p align="center"><strong><em>Figure 3:</em></strong> Graceful disconnect</p>
 
-**Đọc evidence (Hình 3):**
+**Reading the evidence (Figure 3):**
 
-- Terminal A (trái): chỉ có dòng lệnh `mosquitto_sub`, **hoàn toàn không có** dòng nào in ra → Will không được broker phát.
-- Terminal B (phải) — output `./mqtt`:
+- Terminal A (left): only the `mosquitto_sub` command line; no output at all -> the Will was **not** published by the broker.
+- Terminal B (right) - `./mqtt` output:
   ```
   CONNACK rc=0
-  CMD cmd=2 id=0          ← CONNACK echo qua MG_EV_MQTT_CMD
-  CMD cmd=9 id=1          ← SUBACK 'Request'
-  CMD cmd=9 id=2          ← SUBACK 'Signaling'
-  CMD cmd=9 id=3          ← SUBACK 'Status'
-  ^C                      ← Ctrl+C
-  CLOSE                   ← MG_EV_CLOSE fire sau khi mg_mqtt_disconnect()
-                          → mg_mgr_free đóng socket
+  CMD cmd=2 id=0          <- CONNACK echoed through MG_EV_MQTT_CMD
+  CMD cmd=9 id=1          <- SUBACK 'Request'
+  CMD cmd=9 id=2          <- SUBACK 'Signaling'
+  CMD cmd=9 id=3          <- SUBACK 'Status'
+  ^C                      <- Ctrl+C
+  CLOSE                   <- MG_EV_CLOSE fires after mg_mqtt_disconnect()
+                          -> mg_mgr_free closes the socket
   ```
 
-**Ý nghĩa:**
-- Mongoose **không tự bắt signal** — đó là việc của libc qua `<signal.h>`. Pattern chuẩn:
-  1. `signal(SIGINT, handler)` đăng ký handler.
-  2. Handler set cờ `s_quit = 1` (volatile để compiler không optimize).
-  3. Main loop kiểm tra `!s_quit`, thoát khi thấy cờ.
-  4. Gọi `mg_mqtt_disconnect()` để gửi gói DISCONNECT đàng hoàng.
-  5. Poll thêm vài vòng (em chạy 5 lần × 100ms) để **flush** bytes ra socket.
-  6. `mg_mgr_free()` đóng và giải phóng.
+**Meaning:**
+- Mongoose does **not** trap signals itself; that is the job of libc via `<signal.h>`. The canonical pattern is:
+  1. `signal(SIGINT, handler)` registers the handler.
+  2. The handler sets `s_quit = 1` (volatile so the compiler does not optimize it away).
+  3. The main loop checks `!s_quit` and exits when the flag is set.
+  4. Call `mg_mqtt_disconnect()` to send a proper DISCONNECT packet.
+  5. Poll a few more iterations (five iterations x 100ms here) to **flush** the buffered bytes to the socket.
+  6. `mg_mgr_free()` closes and releases everything.
 
-- Bước flush ở (5) rất quan trọng: `mg_mqtt_disconnect()` chỉ **push 2 byte (`0xE0 0x00`) vào send buffer của connection**, chưa thực sự ghi ra socket. Cần `mg_mgr_poll()` chạy thêm vài lần để epoll cho phép write và `send()` xuống kernel.
+- The flush step in (5) is critical: `mg_mqtt_disconnect()` only **pushes 2 bytes (`0xE0 0x00`) into the connection's send buffer**; the bytes are not yet on the wire. `mg_mgr_poll()` needs to run a few more times so that epoll grants write readiness and the kernel `send()` actually goes out.
 
 ---
 
-### Test 4 — Auto-reconnect khi mất kết nối
+### Test 4 - Auto-reconnect khi mất kết nối
 
 **Mục đích:** Verify client tự kết nối lại khi broker bị tắt rồi bật lại. Sự cố mạng/restart broker là chuyện bình thường, app phải sống được qua đó.
 
@@ -673,7 +708,7 @@ Will auto-reconnect in 60000 ms                       ← auto-reconnect logic v
 
 ---
 
-## Kết luận chung
+## X. Conclusion
 
 ### Bẫy `opts.qos` trong CONNECT
 
@@ -702,9 +737,9 @@ Bonus: vì sub topic nằm trong handler `MG_EV_MQTT_OPEN` (fire mỗi lần CON
 
 ---
 
-## Tham khảo
+## XI. References
 
-- Repo Mongoose gốc: <https://github.com/cesanta/mongoose>
+- Mongoose upstream repository: <https://github.com/cesanta/mongoose>
 - Cesanta documentation hub: <https://mongoose.ws/documentation/>
-- MQTT Client: <https://mongoose.ws/documentation/tutorials/mqtt/mqtt-client/>
-- MQTT Server: <https://mongoose.ws/documentation/tutorials/mqtt/mqtt-server/>
+- MQTT Client tutorial: <https://mongoose.ws/documentation/tutorials/mqtt/mqtt-client/>
+- MQTT Server tutorial: <https://mongoose.ws/documentation/tutorials/mqtt/mqtt-server/>
