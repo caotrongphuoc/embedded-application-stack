@@ -14,6 +14,10 @@
 
 # Embedded Application Stack
 
+<!-- Banner: drop the file into resources/images/thumbnail/ and update the src below -->
+<center><img width="1280" alt="Embedded Application Stack" src="resources/images/thumbnail/banner.png" />
+</center>
+
 A connectivity stack for embedded applications - MQTT, HTTP/HTTPS, TLS - built on top of the [Mongoose](https://github.com/cesanta/mongoose) networking library. The end goal is to run this on a real board; the project is currently in the study phase, exercising each protocol on Linux before porting to hardware.
 
 ## Documentation
@@ -60,7 +64,8 @@ embedded-application-stack/
 │   └── <module>-reporting.md           # study report for the module
 └── resources/
     └── images/
-        └── <module>/                   # screenshots used as evidence in reports
+        ├── <module>/                   # screenshots used as evidence in reports
+        └── thumbnail/                  # banner and other README artwork
 ```
 
 For per-module details, follow the report link in the [Documentation](#documentation) table.
