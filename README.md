@@ -22,7 +22,7 @@ A connectivity stack for embedded applications - MQTT, HTTP/HTTPS, TLS - built o
 | --- | --- |
 | [README.md](README.md) | Project overview, module status, repository structure, and contact information. |
 | [docs/mqtt-reporting.md](docs/mqtt-reporting.md) | MQTT study report on Linux with local Mosquitto: sub/pub/unsub, Last Will, graceful disconnect, auto-reconnect, user/password authentication, and TLS with mbedTLS. |
-| [docs/http-reporting.md](docs/http-reporting.md) | HTTP server study report (work in progress): listener setup, routing, JSON responses, and graceful shutdown. |
+| [docs/http-reporting.md](docs/http-reporting.md) | HTTP server study report on Linux: listener setup, `/api/stats` JSON route, 404 fallback, and graceful shutdown; plus a Future Work section for static files, HTTPS, and POST body handling. |
 
 ## Introduction
 
@@ -37,7 +37,7 @@ The immediate objective is to reach a firm understanding of every protocol on a 
 | Module | Status | Report |
 | :---: | :---: | :---: |
 | MQTT | Study complete on Linux (local Mosquitto): sub/pub/unsub, Last Will, graceful disconnect, auto-reconnect, user/password auth, TLS with mbedTLS | [docs/mqtt-reporting.md](docs/mqtt-reporting.md) |
-| HTTP | Minimal working server with `/api/stats` JSON route and graceful shutdown; study report in progress | [docs/http-reporting.md](docs/http-reporting.md) |
+| HTTP | Minimal working server on Linux: listener, `/api/stats` JSON route, 404 fallback, graceful shutdown. Static files and HTTPS listed as future work | [docs/http-reporting.md](docs/http-reporting.md) |
 
 </div>
 
