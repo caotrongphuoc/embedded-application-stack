@@ -14,7 +14,7 @@
 
 # Embedded Application Stack
 
-<center><img width="1280" height="640" alt="BLE Mesh Tracking" src="resources/images/banner/banner-ble-mesh-tracking.png" />
+<center><img width="1280" height="640" alt="Embedded application stack" src="resources/images/thumbnail/banner_embedded_application_stack.png" />
 </center>
 
 <hr>
