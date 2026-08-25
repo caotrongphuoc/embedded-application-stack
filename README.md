@@ -1,38 +1,83 @@
 <div align="center">
-  
+
 ![Repo Traffic](https://komarev.com/ghpvc/?username=embedded-application-stack&label=Repo+Traffic&color=blue&style=flat-square)
 
 </div>
 
+<p align="center">
+  <img src="https://img.shields.io/badge/language-C-blue?style=flat-square&logo=c" alt="Language">
+  <img src="https://img.shields.io/badge/library-Mongoose-orange?style=flat-square" alt="Library">
+  <img src="https://img.shields.io/badge/tls-mbedTLS-green?style=flat-square" alt="TLS">
+  <img src="https://img.shields.io/badge/platform-Linux%20(study)-lightgrey?style=flat-square&logo=linux" alt="Platform">
+  <img src="https://img.shields.io/badge/license-MIT-yellow?style=flat-square" alt="License">
+</p>
+
 # Embedded Application Stack
 
-Connectivity stack cho ứng dụng embedded — MQTT, HTTP/HTTPS, TLS — build trên thư viện [mongoose](https://github.com/cesanta/mongoose). Mục tiêu cuối: chạy được trên board, hiện đang ở phase study từng giao thức trên Linux trước khi port.
+A connectivity stack for embedded applications - MQTT, HTTP/HTTPS, TLS - built on top of the [Mongoose](https://github.com/cesanta/mongoose) networking library. The end goal is to run this on a real board; the project is currently in the study phase, exercising each protocol on Linux before porting to hardware.
 
-## Trạng thái
+## Documentation
 
-| Module | Trạng thái | Báo cáo |
-|---|---|---|
-| MQTT  | Done study trên Linux (mosquitto local) — sub/pub/unsub, Last Will, graceful disconnect, auto-reconnect, auth (user/pass), TLS using mbedtls | [docs/mqtt-reporting.md](docs/mqtt-reporting.md) |
-| HTTP  | TODO | — |
+| File | Description |
+| --- | --- |
+| [README.md](README.md) | Project overview, module status, repository structure, and contact information. |
+| [docs/mqtt-reporting.md](docs/mqtt-reporting.md) | MQTT study report on Linux with local Mosquitto: sub/pub/unsub, Last Will, graceful disconnect, auto-reconnect, user/password authentication, and TLS with mbedTLS. |
+| [docs/http-reporting.md](docs/http-reporting.md) | HTTP server study report (work in progress): listener setup, routing, JSON responses, and graceful shutdown. |
 
-Chưa port lên board thật.
+## Introduction
 
-## Cấu trúc repo
+This repository is a personal study project that walks through the connectivity protocols commonly used on embedded devices. Each module is implemented as a small, self-contained program that links directly against the Mongoose amalgamation, so you can read one folder end-to-end without navigating a build system.
+
+The immediate objective is to reach a firm understanding of every protocol on a Linux host, then port the same code to a real MCU with only the transport layer changing. The `mongoose.c` and `mongoose.h` files are duplicated per module on purpose - it keeps each folder buildable in isolation and makes it easy to swap in a different upstream version for a single module without touching the others.
+
+## Module Status
+
+<div align="center">
+
+| Module | Status | Report |
+| :---: | :---: | :---: |
+| MQTT | Study complete on Linux (local Mosquitto): sub/pub/unsub, Last Will, graceful disconnect, auto-reconnect, user/password auth, TLS with mbedTLS | [docs/mqtt-reporting.md](docs/mqtt-reporting.md) |
+| HTTP | Minimal working server with `/api/stats` JSON route and graceful shutdown; study report in progress | [docs/http-reporting.md](docs/http-reporting.md) |
+
+</div>
+
+> **Note:** No module has been ported to real hardware yet. All evidence in the reports comes from a Linux host.
+
+## Repository Structure
 
 ```
 embedded-application-stack/
 ├── application/
 │   └── sources/
 │       └── app/
-│           └── <module>/         # mỗi giao thức 1 folder
-│               ├── lib/          # thư viện mongoose (mongoose.c, mongoose.h)
-│               ├── <module>.c    # code chính
-│               └── Makefile      # build với gcc, link mongoose.c
+│           └── <module>/               # one folder per protocol (mqtt, http, ...)
+│               └── <module>_<role>/    # per-role subfolder (mqtt_client, http_server, ...)
+│                   ├── lib/            # Mongoose amalgamation (mongoose.c, mongoose.h)
+│                   ├── <name>.c        # module source (mqtt.c, http.c)
+│                   ├── Makefile        # gcc build, links mongoose.c (and mbedTLS for MQTT)
+│                   └── .gitignore      # local build artefacts
 ├── docs/
-│   └── <module>-reporting.md     # báo cáo study chi tiết của module
+│   └── <module>-reporting.md           # study report for the module
 └── resources/
     └── images/
-        └── <module>/             # screenshot evidence cho báo cáo
+        └── <module>/                   # screenshots used as evidence in reports
 ```
 
-Chi tiết từng module xem báo cáo tương ứng trong `docs/`.
+For per-module details, follow the report link in the [Documentation](#documentation) table.
+
+## Contact & Support
+
+<p style="font-size: 20px;"><strong>Cao Trong Phuoc</strong> - Software Engineer - Embedded Systems</p>
+
+``` Note
+Thank you for visiting this repository.
+If you have any questions, suggestions, or feedback about this project, feel free to reach out directly.
+```
+
+<a href="https://github.com/caotrongphuoc">
+  <img src="https://img.shields.io/badge/GitHub-caotrongphuoc-181717?style=for-the-badge&logo=github&logoColor=white"/>
+</a>
+
+<a href="https://www.linkedin.com/in/cao-trong-phuoc/">
+  <img src="https://img.shields.io/badge/LinkedIn-Cao%20Trong%20Phuoc-0A66C2?style=for-the-badge&logo=linkedin&logoColor=white"/>
+</a>
