@@ -1,0 +1,14 @@
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artefacts (also enforced per-module)
+*.o
+*.a
