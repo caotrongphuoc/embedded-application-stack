@@ -1,5 +1,6 @@
 CC      = gcc
 CFLAGS  = -W -Wall -O2 -Ilib
+LDFLAGS =
 SRC     = http.c lib/mongoose.c
 BIN     = http
 
